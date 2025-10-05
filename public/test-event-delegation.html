@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Test Event Delegation - Category Filtering</title>
+        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+        <link
+            href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"
+            rel="stylesheet"
+        />
+        <link
+            href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+            rel="stylesheet"
+        />
+        <style>
+            .test-container {
+                max-width: 900px;
+                margin: 20px auto;
+            }
+            .d-none {
+                display: none !important;
+            }
+            #console-output {
+                background: #f8f9fa;
+                padding: 15px;
+                margin: 20px 0;
+                border-radius: 8px;
+                max-height: 300px;
+                overflow-y: auto;
+                font-family: monospace;
+                font-size: 12px;
+            }
+            .success {
+                color: green;
+            }
+            .error {
+                color: red;
+            }
+            .info {
+                color: blue;
+            }
+            .debug {
+                color: orange;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="test-container">
+            <h1>Test Event Delegation - Category Filtering</h1>
+            <p>
+                This tests if dynamically loaded categories properly trigger
+                filtering
+            </p>
+
+            <!-- Initial categories (similar to real structure) -->
+            <div class="mb-3">
+                <h5>Initial Categories:</h5>
+                <div class="d-flex flex-wrap gap-2">
+                    <input
+                        type="radio"
+                        class="btn-check"
+                        name="categoryFilter"
+                        id="all"
+                        autocomplete="off"
+                        checked
+                    />
+                    <label class="btn btn-outline-primary btn-sm" for="all"
+                        >Semua</label
+                    >
+
+                    <input
+                        type="radio"
+                        class="btn-check"
+                        name="categoryFilter"
+                        id="category-1"
+                        autocomplete="off"
+                    />
+                    <label
+                        class="btn btn-outline-primary btn-sm"
+                        for="category-1"
+                        >Elektronik</label
+                    >
+
+                    <input
+                        type="radio"
+                        class="btn-check"
+                        name="categoryFilter"
+                        id="category-2"
+                        autocomplete="off"
+                    />
+                    <label
+                        class="btn btn-outline-primary btn-sm"
+                        for="category-2"
+                        >Furniture</label
+                    >
+
+                    <input
+                        type="radio"
+                        class="btn-check"
+                        name="categoryFilter"
+                        id="category-3"
+                        autocomplete="off"
+                    />
+                    <label
+                        class="btn btn-outline-primary btn-sm"
+                        for="category-3"
+                        >Kendaraan</label
+                    >
+
+                    <input
+                        type="radio"
+                        class="btn-check"
+                        name="categoryFilter"
+                        id="category-4"
+                        autocomplete="off"
+                    />
+                    <label
+                        class="btn btn-outline-primary btn-sm"
+                        for="category-4"
+                        >Alat Tulis</label
+                    >
+
+                    <button
+                        type="button"
+                        class="btn btn-outline-secondary btn-sm"
+                        onclick="loadMoreCategories()"
+                    >
+                        <span>+4 lainnya</span>
+                        <i class="fas fa-chevron-down ms-1"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Container for dynamically loaded categories -->
+            <div id="moreCategoriesContainer" class="d-none mb-3">
+                <h5>Dynamically Loaded Categories:</h5>
+                <div class="d-flex flex-wrap gap-2" id="moreCategoriesContent">
+                    <!-- Categories will be loaded here -->
+                </div>
+            </div>
+
+            <!-- Test results -->
+            <div id="console-output">
+                <div class="info">Console output will appear here...</div>
+            </div>
+
+            <div class="mt-3">
+                <button class="btn btn-secondary" onclick="clearConsole()">
+                    Clear Console
+                </button>
+                <button class="btn btn-info" onclick="testEventDelegation()">
+                    Test Event Delegation
+                </button>
+            </div>
+        </div>
+
+        <script>
+            // Console redirect
+            const originalConsoleLog = console.log;
+            const originalConsoleError = console.error;
+
+            function addToConsole(message, type = "info") {
+                const consoleDiv = document.getElementById("console-output");
+                const timestamp = new Date().toLocaleTimeString();
+                consoleDiv.innerHTML += `<div class="${type}">[${timestamp}] ${message}</div>`;
+                consoleDiv.scrollTop = consoleDiv.scrollHeight;
+            }
+
+            console.log = function (...args) {
+                originalConsoleLog.apply(console, arguments);
+                addToConsole(args.join(" "), "info");
+            };
+
+            console.error = function (...args) {
+                originalConsoleError.apply(console, arguments);
+                addToConsole(args.join(" "), "error");
+            };
+
+            // === REPLICATE ACTUAL FUNCTIONS ===
+
+            function filterProductsByCategory(categoryId) {
+                console.log("=== FILTER FUNCTION CALLED ===");
+                console.log("Category ID:", categoryId);
+
+                // Simulate what the real function does
+                const baseUrl = "/peminjaman/filter/category/";
+                const url = baseUrl + (categoryId || "all");
+
+                addToConsole(
+                    `✅ FILTERING: Would navigate to ${url}`,
+                    "success"
+                );
+                addToConsole(
+                    `✅ FILTERING: Category ID "${categoryId}" processed successfully`,
+                    "success"
+                );
+
+                return true;
+            }
+
+            // Global function for setting up AJAX category filters (exact copy from real code)
+            window.setupAjaxCategoryFilters = function () {
+                console.log("Setting up AJAX category filters...");
+
+                // Remove any existing event listeners
+                $(document).off(
+                    "change.ajaxFilter",
+                    'input[name="categoryFilter"]'
+                );
+
+                // Use event delegation to handle both existing and future category buttons
+                $(document).on(
+                    "change.ajaxFilter",
+                    'input[name="categoryFilter"]',
+                    function () {
+                        const selectedCategory = $(this).attr("id");
+                        console.log(
+                            "Category filter changed to:",
+                            selectedCategory
+                        );
+                        console.log("Element that triggered change:", this);
+
+                        // Extract category ID from the input ID
+                        let categoryId = "all";
+                        if (selectedCategory !== "all") {
+                            categoryId = selectedCategory.replace(
+                                "category-",
+                                ""
+                            );
+                        }
+
+                        console.log("Extracted category ID:", categoryId);
+                        console.log(
+                            "About to call filterProductsByCategory with:",
+                            categoryId
+                        );
+
+                        // Call AJAX filter
+                        filterProductsByCategory(categoryId);
+                    }
+                );
+
+                console.log(
+                    "AJAX category filters setup complete with event delegation"
+                );
+            };
+
+            function clearConsole() {
+                document.getElementById("console-output").innerHTML =
+                    '<div class="info">Console cleared...</div>';
+            }
+
+            function testEventDelegation() {
+                addToConsole("=== TESTING EVENT DELEGATION ===", "debug");
+
+                // Test existing elements
+                addToConsole("Testing existing category buttons...", "debug");
+                $("#category-1").prop("checked", true).trigger("change");
+
+                // Test if dynamically loaded elements would work
+                setTimeout(() => {
+                    addToConsole(
+                        "Testing dynamically loaded elements...",
+                        "debug"
+                    );
+                    if ($("#category-5").length > 0) {
+                        $("#category-5")
+                            .prop("checked", true)
+                            .trigger("change");
+                    } else {
+                        addToConsole(
+                            "Dynamic elements not loaded yet. Load categories first.",
+                            "debug"
+                        );
+                    }
+                }, 500);
+            }
+
+            function loadMoreCategories() {
+                const container = document.getElementById(
+                    "moreCategoriesContainer"
+                );
+                const content = document.getElementById(
+                    "moreCategoriesContent"
+                );
+
+                console.log("Loading more categories...");
+
+                // Simulate the HTML that would be returned from server
+                const simulatedHtml = `
+                <input type="radio" class="btn-check" name="categoryFilter" id="category-5" autocomplete="off">
+                <label class="btn btn-outline-primary btn-sm" for="category-5">Audio Visual</label>
+                
+                <input type="radio" class="btn-check" name="categoryFilter" id="category-6" autocomplete="off">
+                <label class="btn btn-outline-primary btn-sm" for="category-6">Medis</label>
+                
+                <input type="radio" class="btn-check" name="categoryFilter" id="category-7" autocomplete="off">
+                <label class="btn btn-outline-primary btn-sm" for="category-7">Konstruksi</label>
+                
+                <input type="radio" class="btn-check" name="categoryFilter" id="category-8" autocomplete="off">
+                <label class="btn btn-outline-primary btn-sm" for="category-8">Lab</label>
+            `;
+
+                content.innerHTML = simulatedHtml;
+                container.classList.remove("d-none");
+
+                console.log(
+                    "Categories loaded successfully. Event delegation should handle new buttons."
+                );
+                addToConsole(
+                    "✅ Dynamic categories loaded. Try clicking them!",
+                    "success"
+                );
+            }
+
+            // Initialize
+            $(document).ready(function () {
+                console.log(
+                    "Document ready - initializing event delegation test"
+                );
+                window.setupAjaxCategoryFilters();
+
+                addToConsole("✅ Event delegation initialized", "success");
+                addToConsole("Instructions:", "debug");
+                addToConsole("1. Click any initial category button", "debug");
+                addToConsole(
+                    '2. Click "lainnya" to load dynamic categories',
+                    "debug"
+                );
+                addToConsole("3. Click dynamic category buttons", "debug");
+                addToConsole(
+                    "4. Check if filtering works for both types",
+                    "debug"
+                );
+            });
+        </script>
+    </body>
+</html>

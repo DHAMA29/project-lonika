@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Test Category Expansion - Real Structure</title>
+        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+        <link
+            href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"
+            rel="stylesheet"
+        />
+        <link
+            href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+            rel="stylesheet"
+        />
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                margin: 20px;
+            }
+            .test-container {
+                max-width: 800px;
+                margin: 0 auto;
+            }
+            .d-none {
+                display: none !important;
+            }
+            .filtering-hide {
+                display: none !important;
+            }
+            .filtering-show {
+                display: block !important;
+            }
+            #test-results {
+                background: #f8f9fa;
+                padding: 15px;
+                margin: 20px 0;
+                border-radius: 8px;
+                min-height: 100px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="test-container">
+            <h1>Test Category Expansion - Real Structure</h1>
+            <p>This mimics the actual structure from products.blade.php</p>
+
+            <!-- Replicate the actual category structure -->
+            <div class="d-flex flex-wrap gap-2 justify-content-lg-end">
+                <input
+                    type="radio"
+                    class="btn-check"
+                    name="categoryFilter"
+                    id="all"
+                    autocomplete="off"
+                    checked
+                />
+                <label class="btn btn-outline-primary btn-sm" for="all"
+                    >Semua</label
+                >
+
+                <!-- First 4 categories (always visible) -->
+                <input
+                    type="radio"
+                    class="btn-check"
+                    name="categoryFilter"
+                    id="category-1"
+                    autocomplete="off"
+                />
+                <label class="btn btn-outline-primary btn-sm" for="category-1"
+                    >Elektronik</label
+                >
+
+                <input
+                    type="radio"
+                    class="btn-check"
+                    name="categoryFilter"
+                    id="category-2"
+                    autocomplete="off"
+                />
+                <label class="btn btn-outline-primary btn-sm" for="category-2"
+                    >Furniture</label
+                >
+
+                <input
+                    type="radio"
+                    class="btn-check"
+                    name="categoryFilter"
+                    id="category-3"
+                    autocomplete="off"
+                />
+                <label class="btn btn-outline-primary btn-sm" for="category-3"
+                    >Kendaraan</label
+                >
+
+                <input
+                    type="radio"
+                    class="btn-check"
+                    name="categoryFilter"
+                    id="category-4"
+                    autocomplete="off"
+                />
+                <label class="btn btn-outline-primary btn-sm" for="category-4"
+                    >Alat Tulis</label
+                >
+
+                <!-- Show more button -->
+                <button
+                    type="button"
+                    class="btn btn-outline-secondary btn-sm"
+                    id="showMoreCategories"
+                    onclick="toggleMoreCategories()"
+                >
+                    <span id="moreText">+4 lainnya</span>
+                    <i class="fas fa-chevron-down ms-1" id="moreIcon"></i>
+                </button>
+
+                <!-- Container for additional categories -->
+                <div id="moreCategoriesContainer" class="d-none w-100 mt-2">
+                    <div
+                        class="d-flex flex-wrap gap-2"
+                        id="moreCategoriesContent"
+                    >
+                        <!-- Additional categories will be loaded here -->
+                    </div>
+                </div>
+            </div>
+
+            <div id="test-results">
+                <h5>Test Results:</h5>
+                <div id="console-log"></div>
+            </div>
+        </div>
+
+        <script>
+            // Redirect console.log to show in UI
+            const originalConsoleLog = console.log;
+            const originalConsoleError = console.error;
+
+            console.log = function (...args) {
+                originalConsoleLog.apply(console, arguments);
+                const logDiv = document.getElementById("console-log");
+                logDiv.innerHTML +=
+                    '<div style="color: blue;">[LOG] ' +
+                    args.join(" ") +
+                    "</div>";
+            };
+
+            console.error = function (...args) {
+                originalConsoleError.apply(console, arguments);
+                const logDiv = document.getElementById("console-log");
+                logDiv.innerHTML +=
+                    '<div style="color: red;">[ERROR] ' +
+                    args.join(" ") +
+                    "</div>";
+            };
+
+            // === REPLICATE THE ACTUAL FUNCTIONS FROM scripts.blade.php ===
+
+            // Global function for setting up AJAX category filters
+            window.setupAjaxCategoryFilters = function () {
+                console.log("Setting up AJAX category filters...");
+
+                // Remove any existing event listeners
+                $('input[name="categoryFilter"]').off("change.ajaxFilter");
+
+                // Add new AJAX-based event listeners
+                $('input[name="categoryFilter"]').on(
+                    "change.ajaxFilter",
+                    function () {
+                        const selectedCategory = $(this).attr("id");
+                        console.log(
+                            "Category filter changed to:",
+                            selectedCategory
+                        );
+
+                        // Extract category ID from the input ID
+                        let categoryId = "all";
+                        if (selectedCategory !== "all") {
+                            categoryId = selectedCategory.replace(
+                                "category-",
+                                ""
+                            );
+                        }
+
+                        console.log(
+                            "Would call filterProductsByCategory with:",
+                            categoryId
+                        );
+                    }
+                );
+
+                console.log("AJAX category filters setup complete");
+            };
+
+            // Global variable for tracking more categories state
+            let moreCategoriesLoaded = false;
+
+            window.toggleMoreCategories = function () {
+                const container = document.getElementById(
+                    "moreCategoriesContainer"
+                );
+                const button = document.getElementById("showMoreCategories");
+                const moreText = document.getElementById("moreText");
+                const moreIcon = document.getElementById("moreIcon");
+                const content = document.getElementById(
+                    "moreCategoriesContent"
+                );
+
+                if (!container || !button) {
+                    console.error("Required elements not found");
+                    return;
+                }
+
+                if (container.classList.contains("d-none")) {
+                    // Show more categories
+                    if (!moreCategoriesLoaded) {
+                        // Load categories via AJAX (simulate)
+                        loadMoreCategories();
+                    } else {
+                        // Just show the container
+                        container.classList.remove("d-none");
+                        moreText.textContent = "Sembunyikan";
+                        moreIcon.classList.remove("fa-chevron-down");
+                        moreIcon.classList.add("fa-chevron-up");
+                    }
+                } else {
+                    // Hide more categories
+                    container.classList.add("d-none");
+                    moreText.innerHTML = "+4 lainnya";
+                    moreIcon.classList.remove("fa-chevron-up");
+                    moreIcon.classList.add("fa-chevron-down");
+                }
+            };
+
+            function loadMoreCategories() {
+                const container = document.getElementById(
+                    "moreCategoriesContainer"
+                );
+                const content = document.getElementById(
+                    "moreCategoriesContent"
+                );
+                const moreText = document.getElementById("moreText");
+                const moreIcon = document.getElementById("moreIcon");
+
+                // Store original text
+                if (!moreText.getAttribute("data-original-text")) {
+                    moreText.setAttribute(
+                        "data-original-text",
+                        moreText.textContent
+                    );
+                }
+
+                // Show loading state
+                moreText.textContent = "Memuat...";
+                moreIcon.classList.remove("fa-chevron-down");
+                moreIcon.classList.add("fa-spinner", "fa-spin");
+
+                // Simulate AJAX call
+                setTimeout(() => {
+                    try {
+                        // Simulate successful response
+                        const simulatedCategories = `
+                        <input type="radio" class="btn-check" name="categoryFilter" id="category-5" autocomplete="off">
+                        <label class="btn btn-outline-primary btn-sm" for="category-5">Audio Visual</label>
+                        
+                        <input type="radio" class="btn-check" name="categoryFilter" id="category-6" autocomplete="off">
+                        <label class="btn btn-outline-primary btn-sm" for="category-6">Medis</label>
+                        
+                        <input type="radio" class="btn-check" name="categoryFilter" id="category-7" autocomplete="off">
+                        <label class="btn btn-outline-primary btn-sm" for="category-7">Konstruksi</label>
+                        
+                        <input type="radio" class="btn-check" name="categoryFilter" id="category-8" autocomplete="off">
+                        <label class="btn btn-outline-primary btn-sm" for="category-8">Laboratory</label>
+                    `;
+
+                        content.innerHTML = simulatedCategories;
+                        moreCategoriesLoaded = true;
+
+                        // Show container
+                        container.classList.remove("d-none");
+
+                        // Update button text
+                        moreText.textContent = "Sembunyikan";
+                        moreIcon.classList.remove("fa-spinner", "fa-spin");
+                        moreIcon.classList.add("fa-chevron-up");
+
+                        // Re-attach event listeners for new category buttons
+                        setupCategoryFilters();
+
+                        console.log("Categories loaded successfully");
+                    } catch (error) {
+                        console.error("Error loading more categories:", error);
+
+                        // Reset button state
+                        const originalText =
+                            moreText.getAttribute("data-original-text") ||
+                            "+4 lainnya";
+                        moreText.textContent = originalText;
+                        moreIcon.classList.remove("fa-spinner", "fa-spin");
+                        moreIcon.classList.add("fa-chevron-down");
+                    }
+                }, 1000); // Simulate network delay
+            }
+
+            function setupCategoryFilters() {
+                console.log("Setting up category filters...");
+
+                // Remove existing event listeners to prevent duplicates
+                $('input[name="categoryFilter"]').off("change.categoryFilter");
+
+                // Use AJAX-based filtering (now using global function)
+                window.setupAjaxCategoryFilters();
+
+                console.log(
+                    "Category filters setup complete. Found",
+                    $('input[name="categoryFilter"]').length,
+                    "category filters"
+                );
+            }
+
+            // Initialize when document is ready
+            $(document).ready(function () {
+                console.log("Document ready - initializing test page");
+                setupCategoryFilters();
+            });
+        </script>
+    </body>
+</html>

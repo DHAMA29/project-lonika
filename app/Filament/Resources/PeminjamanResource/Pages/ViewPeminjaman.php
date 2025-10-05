@@ -4,16 +4,19 @@ namespace App\Filament\Resources\PeminjamanResource\Pages;
 
 use App\Filament\Resources\PeminjamanResource;
 use Filament\Actions;
-use Filament\Resources\Pages\ListRecords;
+use Filament\Resources\Pages\ViewRecord;
 
-class ListPeminjaman extends ListRecords
+class ViewPeminjaman extends ViewRecord
 {
     protected static string $resource = PeminjamanResource::class;
+    
+    protected static ?string $title = 'Detail Transaksi';
 
     protected function getHeaderActions(): array
     {
         return [
-            Actions\CreateAction::make(),
+            Actions\EditAction::make()
+                ->label('Edit'),
         ];
     }
 }

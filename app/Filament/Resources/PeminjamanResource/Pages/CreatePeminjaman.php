@@ -11,6 +11,8 @@ class CreatePeminjaman extends CreateRecord
 {
     protected static string $resource = PeminjamanResource::class;
     
+    protected static ?string $title = 'Tambah Transaksi Baru';
+    
     protected function mutateFormDataBeforeCreate(array $data): array
     {
         // Ensure detail_peminjaman has proper values
@@ -59,5 +61,10 @@ class CreatePeminjaman extends CreateRecord
         }
         
         return $data;
+    }
+
+    protected function getRedirectUrl(): string
+    {
+        return $this->getResource()::getUrl('index');
     }
 }

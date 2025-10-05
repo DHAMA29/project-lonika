@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Test Fixed Filtering</title>
+        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+        <style>
+            .product-item {
+                border: 1px solid #ddd;
+                padding: 15px;
+                margin: 10px;
+                background: #f8f9fa;
+                border-radius: 5px;
+            }
+
+            .product-item.filtering-hide {
+                display: none !important;
+            }
+
+            .product-item.filtering-show {
+                display: block !important;
+            }
+
+            .filter-buttons {
+                margin: 20px 0;
+            }
+
+            .filter-buttons input[type="radio"] {
+                margin: 0 10px 0 20px;
+            }
+
+            .debug-info {
+                background: #e9ecef;
+                padding: 10px;
+                margin: 10px 0;
+                border-radius: 5px;
+                font-family: monospace;
+                white-space: pre-wrap;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Test Fixed Category Filtering</h1>
+
+        <div class="filter-buttons">
+            <h3>Filter Options:</h3>
+            <input type="radio" name="categoryFilter" id="all" checked />
+            <label for="all">Semua</label>
+
+            <input type="radio" name="categoryFilter" id="category-1" />
+            <label for="category-1">Kamera (ID: 1)</label>
+
+            <input type="radio" name="categoryFilter" id="category-2" />
+            <label for="category-2">Audio (ID: 2)</label>
+
+            <input type="radio" name="categoryFilter" id="category-3" />
+            <label for="category-3">Lighting (ID: 3)</label>
+
+            <input type="radio" name="categoryFilter" id="category-4" />
+            <label for="category-4">Drone (ID: 4)</label>
+        </div>
+
+        <div id="productGrid">
+            <h3>Test Products:</h3>
+            <div class="product-item" data-category="category-1">
+                <h6>Canon EOS R5</h6>
+                <p>Category: Kamera (category-1)</p>
+            </div>
+            <div class="product-item" data-category="category-2">
+                <h6>Audio Technica Mic</h6>
+                <p>Category: Audio (category-2)</p>
+            </div>
+            <div class="product-item" data-category="category-3">
+                <h6>LED Panel Light</h6>
+                <p>Category: Lighting (category-3)</p>
+            </div>
+            <div class="product-item" data-category="category-1">
+                <h6>Sony A7 III</h6>
+                <p>Category: Kamera (category-1)</p>
+            </div>
+            <div class="product-item" data-category="category-4">
+                <h6>DJI Mavic Pro</h6>
+                <p>Category: Drone (category-4)</p>
+            </div>
+            <div class="product-item" data-category="category-2">
+                <h6>Rode VideoMic</h6>
+                <p>Category: Audio (category-2)</p>
+            </div>
+        </div>
+
+        <div class="debug-info" id="debugOutput">
+            Debug output will appear here...
+        </div>
+
+        <script>
+            // Enhanced Product Filtering - FIXED VERSION
+            function smoothProductFilter(selectedCategory) {
+                console.log("=== FILTER START ===");
+                console.log("Filtering by category:", selectedCategory);
+
+                const $products = $(".product-item");
+                console.log("Total products found:", $products.length);
+
+                let debugText = "=== FILTER START ===\n";
+                debugText +=
+                    "Filtering by category: " + selectedCategory + "\n";
+                debugText +=
+                    "Total products found: " + $products.length + "\n\n";
+
+                // Reset all products - remove both classes first
+                $products.removeClass("filtering-hide filtering-show");
+
+                if (selectedCategory === "all") {
+                    console.log("Showing ALL products");
+                    debugText += "Showing ALL products\n";
+                    $products.addClass("filtering-show");
+                } else {
+                    console.log(
+                        "Filtering by specific category:",
+                        selectedCategory
+                    );
+                    debugText +=
+                        "Filtering by specific category: " +
+                        selectedCategory +
+                        "\n\n";
+
+                    let matchCount = 0;
+                    let hideCount = 0;
+
+                    $products.each(function () {
+                        const $product = $(this);
+                        const productCategory = $product.data("category");
+                        const productName =
+                            $product.find("h6").first().text() || "Unknown";
+
+                        console.log(
+                            "Product:",
+                            productName,
+                            "| Category:",
+                            productCategory,
+                            "| Target:",
+                            selectedCategory
+                        );
+                        debugText +=
+                            "Product: " +
+                            productName +
+                            " | Category: " +
+                            productCategory +
+                            " | Target: " +
+                            selectedCategory +
+                            "\n";
+
+                        if (productCategory === selectedCategory) {
+                            $product.addClass("filtering-show");
+                            matchCount++;
+                            console.log("→ SHOW:", productName);
+                            debugText += "→ SHOW: " + productName + "\n";
+                        } else {
+                            $product.addClass("filtering-hide");
+                            hideCount++;
+                            console.log("→ HIDE:", productName);
+                            debugText += "→ HIDE: " + productName + "\n";
+                        }
+                    });
+
+                    console.log(
+                        "Results: Showing",
+                        matchCount,
+                        "products, Hiding",
+                        hideCount,
+                        "products"
+                    );
+                    debugText +=
+                        "\nResults: Showing " +
+                        matchCount +
+                        " products, Hiding " +
+                        hideCount +
+                        " products\n";
+                }
+
+                debugText += "=== FILTER END ===\n\n";
+                document.getElementById("debugOutput").textContent = debugText;
+
+                console.log("=== FILTER END ===");
+            }
+
+            // Setup event listeners
+            function setupCategoryFilters() {
+                console.log("Setting up category filters...");
+
+                $('input[name="categoryFilter"]').off("change.categoryFilter");
+
+                $('input[name="categoryFilter"]').on(
+                    "change.categoryFilter",
+                    function () {
+                        const selectedCategory = $(this).attr("id");
+                        console.log(
+                            "Category filter changed to:",
+                            selectedCategory
+                        );
+                        smoothProductFilter(selectedCategory);
+                    }
+                );
+
+                console.log(
+                    "Category filters setup complete. Found",
+                    $('input[name="categoryFilter"]').length,
+                    "category filters"
+                );
+            }
+
+            // Initialize when document is ready
+            $(document).ready(function () {
+                console.log("Document ready, initializing...");
+                setupCategoryFilters();
+
+                // Show all products initially
+                smoothProductFilter("all");
+            });
+        </script>
+    </body>
+</html>

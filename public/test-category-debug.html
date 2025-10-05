@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Test Category Filtering</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                margin: 20px;
+            }
+            .debug {
+                background: #f0f0f0;
+                padding: 10px;
+                margin: 10px 0;
+                border-radius: 5px;
+            }
+            .product {
+                border: 1px solid #ddd;
+                padding: 10px;
+                margin: 5px;
+                display: inline-block;
+            }
+            .hidden {
+                display: none;
+            }
+            button {
+                margin: 5px;
+                padding: 10px;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Test Category Filtering Debug</h1>
+
+        <div class="debug">
+            <h3>Test Products:</h3>
+            <div class="product" data-category="category-1">
+                Product 1 (Kamera)
+            </div>
+            <div class="product" data-category="category-2">
+                Product 2 (Audio)
+            </div>
+            <div class="product" data-category="category-3">
+                Product 3 (Lighting)
+            </div>
+            <div class="product" data-category="category-4">
+                Product 4 (Drone)
+            </div>
+            <div class="product" data-category="category-6">
+                Product 5 (Proyektor)
+            </div>
+        </div>
+
+        <div class="debug">
+            <h3>Filter Buttons:</h3>
+            <button onclick="testFilter('all')">All</button>
+            <button onclick="testFilter('category-1')">Kamera</button>
+            <button onclick="testFilter('category-2')">Audio</button>
+            <button onclick="testFilter('category-3')">Lighting</button>
+            <button onclick="testFilter('category-4')">Drone</button>
+            <button onclick="testFilter('category-6')">Proyektor</button>
+        </div>
+
+        <div class="debug" id="debugOutput">
+            <h3>Debug Output:</h3>
+        </div>
+
+        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+        <script>
+            function testFilter(selectedCategory) {
+                console.log("Testing filter with:", selectedCategory);
+                const debugOutput = document.getElementById("debugOutput");
+                debugOutput.innerHTML = "<h3>Debug Output:</h3>";
+
+                const $products = $(".product");
+                debugOutput.innerHTML +=
+                    "<p>Found " + $products.length + " products</p>";
+
+                $products.each(function () {
+                    const $product = $(this);
+                    const productCategory = $product.data("category");
+                    debugOutput.innerHTML +=
+                        "<p>Product: " +
+                        $product.text() +
+                        " has category: " +
+                        productCategory +
+                        "</p>";
+
+                    if (selectedCategory === "all") {
+                        $product.removeClass("hidden");
+                        debugOutput.innerHTML +=
+                            '<p style="color: green;">→ Showing (all filter)</p>';
+                    } else {
+                        if (productCategory === selectedCategory) {
+                            $product.removeClass("hidden");
+                            debugOutput.innerHTML +=
+                                '<p style="color: green;">→ Showing (category match)</p>';
+                        } else {
+                            $product.addClass("hidden");
+                            debugOutput.innerHTML +=
+                                '<p style="color: red;">→ Hiding (no match)</p>';
+                        }
+                    }
+                });
+            }
+        </script>
+    </body>
+</html>

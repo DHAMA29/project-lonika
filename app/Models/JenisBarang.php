@@ -12,7 +12,8 @@ class JenisBarang extends Model
     protected $table = 'jenis_barang';
     protected $fillable = ['nama'];
 
-    public function barang() {
-        return $this->hasMany(Barang::class, 'jenis_id');
+    public function barang()
+    {
+        return $this->hasMany(Barang::class, 'jenis_barang_id');
     }
 }

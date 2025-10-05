@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Test Category Expansion</title>
+        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+        <style>
+            .category-item {
+                display: inline-block;
+                margin: 5px;
+                padding: 10px;
+                background: #f0f0f0;
+                border-radius: 5px;
+            }
+            .more-categories {
+                display: none;
+            }
+            .btn-load-more {
+                padding: 8px 16px;
+                background: #007bff;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+            }
+            .btn-load-more:hover {
+                background: #0056b3;
+            }
+            .d-none {
+                display: none !important;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Test Category Expansion Feature</h1>
+
+        <div class="category-filter">
+            <div class="category-item">Kategori 1</div>
+            <div class="category-item">Kategori 2</div>
+            <div class="category-item">Kategori 3</div>
+            <div class="category-item">Kategori 4</div>
+            <div class="category-item">Kategori 5</div>
+
+            <div class="more-categories">
+                <div class="category-item">Kategori 6</div>
+                <div class="category-item">Kategori 7</div>
+                <div class="category-item">Kategori 8</div>
+            </div>
+
+            <button class="btn-load-more" onclick="loadMoreCategories()">
+                lainnya
+            </button>
+        </div>
+
+        <div
+            id="status"
+            style="margin-top: 20px; padding: 10px; background: #e9ecef"
+        ></div>
+
+        <script>
+            // Test function definitions (simplified version)
+            function setupAjaxCategoryFilters() {
+                console.log("Setting up AJAX category filters...");
+                $("#status").append(
+                    "<div>✓ setupAjaxCategoryFilters function works</div>"
+                );
+            }
+
+            function loadMoreCategories() {
+                console.log("Loading more categories...");
+                $("#status").append(
+                    "<div>✓ loadMoreCategories function called</div>"
+                );
+
+                // Test function availability
+                try {
+                    setupAjaxCategoryFilters();
+                    $("#status").append(
+                        '<div style="color: green;">✓ setupAjaxCategoryFilters is accessible</div>'
+                    );
+                } catch (error) {
+                    $("#status").append(
+                        '<div style="color: red;">✗ Error: ' +
+                            error.message +
+                            "</div>"
+                    );
+                    return;
+                }
+
+                // Show more categories
+                $(".more-categories").slideDown();
+                $(".btn-load-more").addClass("d-none");
+                $("#status").append(
+                    "<div>✓ More categories shown successfully</div>"
+                );
+            }
+
+            $(document).ready(function () {
+                console.log("Document ready");
+                $("#status").append("<div>✓ jQuery loaded and ready</div>");
+
+                // Test the setup function
+                setupAjaxCategoryFilters();
+            });
+        </script>
+    </body>
+</html>

@@ -1,0 +1,1447 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use App\Models\Barang;
+use App\Models\JenisBarang;
+use App\Models\Peminjaman;
+use App\Models\DetailPeminjaman;
+use App\Models\Peminjam;
+use App\Services\StockAvailabilityService;
+use App\Helpers\UrlCrypt;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Carbon\Carbon;
+
+class PeminjamanController extends Controller
+{
+    protected $stockService;
+
+    public function __construct(StockAvailabilityService $stockService)
+    {
+        $this->stockService = $stockService;
+    }
+
+    public function index(Request $request)
+    {
+        $query = Barang::with('jenisBarang');
+        
+        // Handle search functionality
+        if ($request->has('search') && !empty($request->search)) {
+            $searchTerm = $request->search;
+            $query->where(function($q) use ($searchTerm) {
+                $q->where('nama', 'LIKE', '%' . $searchTerm . '%')
+                  ->orWhere('deskripsi', 'LIKE', '%' . $searchTerm . '%')
+                  ->orWhereHas('jenisBarang', function($subQuery) use ($searchTerm) {
+                      $subQuery->where('nama', 'LIKE', '%' . $searchTerm . '%');
+                  });
+            });
+        }
+        
+        // Handle category filter - exclude 'all' category to show all products
+        if ($request->has('category') && !empty($request->category) && $request->category !== 'all') {
+            $query->where('jenis_barang_id', $request->category);
+        }
+        
+        // Get ALL products without pagination - load everything at once
+        $barang = $query->orderBy('created_at', 'desc')->get();
+        
+        // Add availability information for each product
+        $today = now();
+        $tomorrow = now()->addDay();
+        
+        foreach ($barang as $item) {
+            // Check availability for today to tomorrow (1 day rental)
+            $availability = $this->stockService->checkAvailability(
+                $item->id,
+                $today,
+                $tomorrow
+            );
+            
+            // Add availability data to the item
+            $item->available_stock = $availability['available_quantity'];
+            $item->is_available = $availability['available'];
+            $item->availability_message = $availability['message'] ?? '';
+        }
+        
+        $jenisBarang = JenisBarang::withCount('barang')->get();
+        $totalBarang = Barang::count();
+        $totalCustomers = Peminjam::count();
+        $totalOrders = Peminjaman::count();
+        
+        return view('peminjaman.index', compact(
+            'barang', 
+            'jenisBarang', 
+            'totalBarang', 
+            'totalCustomers',
+            'totalOrders'
+        ));
+    }
+
+    public function show($encrypted_id, Request $request)
+    {
+        $id = UrlCrypt::decrypt($encrypted_id);
+        
+        if (!$id) {
+            abort(404, 'Barang tidak ditemukan');
+        }
+        
+        $barang = Barang::with('jenisBarang')->findOrFail($id);
+        
+        // Get date for availability check
+        $checkDate = $request->get('check_date');
+        
+        if ($checkDate) {
+            // Use provided date for checking
+            $startDate = Carbon::parse($checkDate);
+            $endDate = $startDate->copy()->addDay();
+        } else {
+            // Default to today to tomorrow (1 day rental)
+            $startDate = now();
+            $endDate = now()->addDay();
+        }
+        
+        // Check availability
+        $availability = $this->stockService->checkAvailability(
+            $barang->id,
+            $startDate,
+            $endDate
+        );
+        
+        // Add availability data to the item
+        $barang->available_stock = $availability['available_quantity'];
+        $barang->is_available = $availability['available'];
+        $barang->availability_message = $availability['message'] ?? '';
+        $barang->conflicts = $availability['conflicts'] ?? [];
+        
+        // Check if this is an AJAX request for availability checking
+        if ($request->ajax() || $request->wantsJson() || $request->has('check_date')) {
+            return response()->json([
+                'success' => true,
+                'available_stock' => $availability['available_quantity'],
+                'is_available' => $availability['available'],
+                'message' => $availability['message'] ?? '',
+                'conflicts' => $availability['conflicts'] ?? [],
+                'check_date' => $checkDate ?: $startDate->toDateString(),
+                'product_id' => $barang->id,
+                'product_name' => $barang->nama
+            ]);
+        }
+        
+        return view('peminjaman.detail', compact('barang'));
+    }
+    
+    /**
+     * Show product detail using query parameter (shorter URL)
+     * Route: /barang?id=encrypted_id
+     */
+    public function showByQuery(Request $request)
+    {
+        $encrypted_id = $request->get('id');
+        
+        if (!$encrypted_id) {
+            abort(404, 'Barang tidak ditemukan');
+        }
+        
+        // Use the same logic as the original show method
+        return $this->show($encrypted_id, $request);
+    }
+
+    public function cart()
+    {
+        $cartItems = session()->get('cart', []);
+        return view('peminjaman.cart', compact('cartItems'));
+    }
+
+    public function cartCount()
+    {
+        try {
+            $cart = session()->get('cart', []);
+            $cartCount = count($cart);
+            $totalItems = $cartCount > 0 ? array_sum(array_column($cart, 'quantity')) : 0;
+            
+            return response()->json([
+                'success' => true,
+                'cart_count' => $cartCount,
+                'cart_items' => $totalItems
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('Cart count error:', [
+                'message' => $e->getMessage()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'cart_count' => 0,
+                'message' => 'Error getting cart count'
+            ], 500);
+        }
+    }
+
+    public function addToCart(Request $request)
+    {
+        try {
+            // Validate input (simplified)
+            $barangId = (int)$request->barang_id;
+            $quantity = (int)$request->quantity;
+            
+            if (!$barangId || $quantity <= 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Data tidak valid'
+                ]);
+            }
+
+            // Get barang with error handling
+            try {
+                $barang = Barang::select('id', 'nama', 'harga_hari', 'stok', 'gambar')
+                    ->where('id', $barangId)
+                    ->first();
+            } catch (\Exception $dbError) {
+                Log::error('Database error in addToCart: ' . $dbError->getMessage());
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error accessing database: ' . $dbError->getMessage()
+                ], 500);
+            }
+            
+            if (!$barang) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Barang tidak ditemukan'
+                ]);
+            }
+            
+            // Quick stock check
+            if ($barang->stok <= 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Stok barang tidak tersedia'
+                ]);
+            }
+            
+            if ($quantity > $barang->stok) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Jumlah melebihi stok yang tersedia'
+                ]);
+            }
+            
+            // Get current cart
+            $cart = session()->get('cart', []);
+            $cartItemId = (string)$barangId;
+            
+            if (isset($cart[$cartItemId])) {
+                $newQuantity = $cart[$cartItemId]['quantity'] + $quantity;
+                if ($newQuantity > $barang->stok) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Total jumlah akan melebihi stok yang tersedia'
+                    ]);
+                }
+                $cart[$cartItemId]['quantity'] = $newQuantity;
+            } else {
+                $cart[$cartItemId] = [
+                    'id' => $barang->id,
+                    'nama' => $barang->nama,
+                    'harga' => $barang->harga_hari,
+                    'quantity' => $quantity,
+                    'image' => $barang->gambar ?? 'placeholder.jpg',
+                    'stok' => $barang->stok
+                ];
+            }
+            
+            // Save cart to session (optimized)
+            session()->put('cart', $cart);
+            session()->save(); // Force immediate save
+            
+            // Calculate total quantity
+            $totalQuantity = 0;
+            foreach ($cart as $item) {
+                $totalQuantity += $item['quantity'];
+            }
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Barang berhasil ditambahkan ke keranjang',
+                'cart_count' => $totalQuantity,
+                'cart_items' => count($cart)
+            ]);
+            
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Data tidak valid: ' . implode(', ', $e->validator->errors()->all())
+            ], 422);
+            
+        } catch (\Exception $e) {
+            Log::error('Add to cart error: ' . $e->getMessage());
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat menambahkan ke keranjang'
+            ], 500);
+        }
+    }
+
+    public function clearCart()
+    {
+        try {
+            session()->forget('cart');
+            session()->save();
+            
+            Log::info('Cart cleared successfully');
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Keranjang berhasil dikosongkan'
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('Clear cart error:', $e->getMessage());
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal mengosongkan keranjang'
+            ], 500);
+        }
+    }
+
+    public function updateCartQuantity(Request $request, $id)
+    {
+        try {
+            $request->validate([
+                'quantity' => 'required|integer|min:1'
+            ]);
+
+            $barang = Barang::findOrFail($id);
+            $cart = session()->get('cart', []);
+            $cartItemId = (string)$id;
+            
+            // Get original quantity for fallback
+            $originalQuantity = isset($cart[$cartItemId]) ? $cart[$cartItemId]['quantity'] : 1;
+            
+            if ($request->quantity > $barang->stok) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Stok tidak mencukupi! Hanya tersedia {$barang->stok} unit dari barang '{$barang->nama}'",
+                    'original_quantity' => $originalQuantity,
+                    'available_stock' => $barang->stok
+                ]);
+            }
+            
+            if (isset($cart[$cartItemId])) {
+                $cart[$cartItemId]['quantity'] = (int)$request->quantity;
+                session()->put('cart', $cart);
+                
+                // Calculate new totals
+                $itemTotal = $cart[$cartItemId]['harga'] * $cart[$cartItemId]['quantity'];
+                $grandTotal = 0;
+                $totalQuantity = 0;
+                
+                foreach ($cart as $item) {
+                    $grandTotal += $item['harga'] * $item['quantity'];
+                    $totalQuantity += $item['quantity'];
+                }
+                
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Jumlah berhasil diperbarui',
+                    'item_total' => number_format($itemTotal, 0, ',', '.'),
+                    'grand_total' => number_format($grandTotal, 0, ',', '.'),
+                    'cart_count' => $totalQuantity,
+                    'quantity' => $cart[$cartItemId]['quantity']
+                ]);
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Item tidak ditemukan di keranjang'
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('Update cart quantity error: ' . $e->getMessage());
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat memperbarui jumlah'
+            ], 500);
+        }
+    }
+
+    public function removeFromCart($id)
+    {
+        try {
+            $cart = session()->get('cart', []);
+            
+            if (isset($cart[$id])) {
+                $barangName = $cart[$id]['nama'] ?? 'Item';
+                unset($cart[$id]);
+                session()->put('cart', $cart);
+                
+                // For AJAX requests, return JSON
+                if (request()->ajax() || request()->expectsJson()) {
+                    return response()->json([
+                        'success' => true,
+                        'message' => "Item berhasil dihapus dari keranjang",
+                        'cart_count' => count($cart),
+                        'cart_items' => array_sum(array_column($cart, 'quantity'))
+                    ]);
+                }
+                
+                return redirect()->route('peminjaman.cart')->with('success', 'Barang berhasil dihapus dari keranjang');
+            }
+            
+            // Item not found
+            if (request()->ajax() || request()->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Item tidak ditemukan dalam keranjang'
+                ], 404);
+            }
+            
+            return redirect()->route('peminjaman.cart')->with('error', 'Item tidak ditemukan dalam keranjang');
+            
+        } catch (\Exception $e) {
+            Log::error('Error removing item from cart: ' . $e->getMessage());
+            
+            if (request()->ajax() || request()->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Terjadi kesalahan saat menghapus item'
+                ], 500);
+            }
+            
+            return redirect()->route('peminjaman.cart')->with('error', 'Terjadi kesalahan saat menghapus item');
+        }
+    }
+
+    public function checkout()
+    {
+        $cartItems = session()->get('cart', []);
+        
+        if (empty($cartItems)) {
+            return redirect()->route('peminjaman.cart')->with('error', 'Keranjang kosong');
+        }
+        
+        return view('peminjaman.checkout', compact('cartItems'));
+    }
+
+    // API endpoint untuk autocomplete data peminjam
+    public function getPeminjamHistory(Request $request)
+    {
+        try {
+            $search = $request->get('search', '');
+            
+            if (strlen($search) < 2) {
+                return response()->json([
+                    'success' => true,
+                    'data' => []
+                ]);
+            }
+            
+            $peminjamData = \App\Models\Peminjam::where('nama', 'LIKE', "%{$search}%")
+                ->orderBy('created_at', 'desc')
+                ->limit(10)
+                ->get(['nama', 'email', 'telepon', 'alamat']);
+            
+            return response()->json([
+                'success' => true,
+                'data' => $peminjamData
+            ]);
+            
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error fetching peminjam data'
+            ]);
+        }
+    }
+
+    public function validateDiscount(Request $request)
+    {
+        try {
+            $kodeDiskon = strtoupper(trim($request->kode_diskon));
+            
+            if (empty($kodeDiskon)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Kode diskon tidak boleh kosong'
+                ]);
+            }
+            
+            // Find discount by code
+            $discount = \App\Models\DiskonModel::where('kode_diskon', $kodeDiskon)->first();
+            
+            if (!$discount) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Kode diskon tidak ditemukan'
+                ]);
+            }
+            
+            // Check if discount is active and valid
+            if (!$discount->canBeUsed()) {
+                if ($discount->status !== 'aktif') {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Kode diskon tidak aktif'
+                    ]);
+                }
+                
+                if ($discount->tanggal_berakhir && $discount->tanggal_berakhir < now()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Kode diskon sudah kedaluwarsa'
+                    ]);
+                }
+                
+                if ($discount->batas_penggunaan && $discount->jumlah_terpakai >= $discount->batas_penggunaan) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Kuota penggunaan kode diskon sudah habis'
+                    ]);
+                }
+                
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Kode diskon tidak dapat digunakan'
+                ]);
+            }
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Kode diskon valid',
+                'discount' => [
+                    'kode_diskon' => $discount->kode_diskon,
+                    'persentase' => $discount->persentase,
+                    'deskripsi' => $discount->deskripsi
+                ]
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('Error validating discount: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat memvalidasi kode diskon'
+            ]);
+        }
+    }
+
+    public function processCheckout(Request $request)
+    {
+        // Basic validation first
+        $request->validate([
+            'nama' => 'required|string|max:255',
+            'email' => 'required|email',
+            'telepon' => 'required|string',
+            'alamat' => 'required|string',
+            'tanggal_pinjam' => 'required|date',
+            'jam_pinjam' => 'required',
+            'tanggal_kembali' => 'required|date',
+            'jam_kembali' => 'required',
+            'pembayaran' => 'required|in:cash,transfer,ewallet',
+            'kode_diskon' => 'nullable|string|max:6'
+        ]);
+
+        // Check for exact duplicate combination (nama + telepon)
+        $existingPeminjam = Peminjam::where('nama', $request->nama)
+            ->where('telepon', $request->telepon)
+            ->first();
+
+        // If exact match exists, use existing record (update email/alamat if needed)
+        if ($existingPeminjam) {
+            if ($existingPeminjam->email !== $request->email) {
+                // Different email - allow user to choose
+                $message = 'Kombinasi nama dan nomor telepon sudah terdaftar dengan email: ' . $existingPeminjam->email . '. ';
+                $message .= 'Apakah Anda ingin melanjutkan dengan data yang sudah ada atau menggunakan email baru?';
+                
+                return back()->withErrors([
+                    'general' => $message
+                ])->withInput()->with('existing_peminjam_id', $existingPeminjam->id);
+            }
+        } else {
+            // Check for duplicate nama with different telepon
+            $duplicateName = Peminjam::where('nama', $request->nama)
+                ->where('telepon', '!=', $request->telepon)
+                ->first();
+
+            if ($duplicateName) {
+                return back()->withErrors([
+                    'nama' => 'Nama "' . $request->nama . '" sudah terdaftar dengan nomor telepon: ' . $duplicateName->telepon . '. Silakan periksa kembali data Anda.'
+                ])->withInput();
+            }
+
+            // Check for duplicate telepon with different nama
+            $duplicatePhone = Peminjam::where('telepon', $request->telepon)
+                ->where('nama', '!=', $request->nama)
+                ->first();
+
+            if ($duplicatePhone) {
+                return back()->withErrors([
+                    'telepon' => 'Nomor telepon "' . $request->telepon . '" sudah terdaftar dengan nama: "' . $duplicatePhone->nama . '". Silakan periksa kembali data Anda.'
+                ])->withInput();
+            }
+        }
+
+        $cartItems = session()->get('cart', []);
+        
+        if (empty($cartItems)) {
+            return redirect()->route('peminjaman.cart')->with('error', 'Keranjang kosong');
+        }
+
+        DB::beginTransaction();
+        
+        try {
+            // VALIDATE AVAILABILITY FIRST - This is the key fix!
+            $stockService = new StockAvailabilityService();
+            $startDateTime = \Carbon\Carbon::parse($request->tanggal_pinjam . ' ' . $request->jam_pinjam);
+            $endDateTime = \Carbon\Carbon::parse($request->tanggal_kembali . ' ' . $request->jam_kembali);
+            
+            // Check availability for each item in cart
+            foreach ($cartItems as $item) {
+                $availability = $stockService->checkAvailability(
+                    $item['id'],
+                    $startDateTime->format('Y-m-d H:i:s'),
+                    $endDateTime->format('Y-m-d H:i:s'),
+                    $item['quantity']
+                );
+                
+                if (!$availability['available']) {
+                    DB::rollBack();
+                    return back()->withErrors([
+                        'availability' => "Barang '{$item['nama']}' tidak tersedia untuk periode yang dipilih. {$availability['message']}"
+                    ])->withInput();
+                }
+            }
+
+            // Create or update peminjam
+            if ($existingPeminjam) {
+                $peminjam = $existingPeminjam;
+                // Update data if different
+                $peminjam->update([
+                    'email' => $request->email,
+                    'alamat' => $request->alamat,
+                ]);
+            } else {
+                $peminjam = Peminjam::create([
+                    'nama' => $request->nama,
+                    'telepon' => $request->telepon,
+                    'email' => $request->email,
+                    'alamat' => $request->alamat,
+                ]);
+            }
+
+            // Calculate duration with hours
+            $startDateTime = \Carbon\Carbon::parse($request->tanggal_pinjam . ' ' . $request->jam_pinjam);
+            $endDateTime = \Carbon\Carbon::parse($request->tanggal_kembali . ' ' . $request->jam_kembali);
+            
+            // Calculate total hours
+            $totalHours = $startDateTime->diffInHours($endDateTime);
+            
+            // Logika billing: 1-24 jam = 1 hari, lebih dari 24 jam = kelipatan hari
+            if ($totalHours <= 24) {
+                $lamaDays = 1;
+            } else {
+                $lamaDays = ceil($totalHours / 24); // Keterlambatan dikenakan biaya hari penuh
+            }
+
+            // Calculate total
+            $subtotalHarga = 0;
+            foreach ($cartItems as $item) {
+                $subtotalHarga += $item['harga'] * $item['quantity'] * $lamaDays;
+            }
+
+            // Handle discount if provided
+            $discountAmount = 0;
+            $discountCode = null;
+            if (!empty($request->kode_diskon)) {
+                $kodeDiskon = strtoupper(trim($request->kode_diskon));
+                $discount = \App\Models\DiskonModel::where('kode_diskon', $kodeDiskon)->first();
+                
+                if ($discount && $discount->canBeUsed()) {
+                    $discountAmount = round($subtotalHarga * ($discount->persentase / 100));
+                    $discountCode = $kodeDiskon;
+                    
+                    // Increment usage count
+                    $discount->incrementUsage();
+                }
+            }
+            
+            $totalHarga = $subtotalHarga - $discountAmount;
+
+            // Create peminjaman
+            $peminjaman = Peminjaman::create([
+                'peminjam_id' => $peminjam->id,
+                'kode_diskon' => $discountCode,
+                'nominal_diskon' => $discountAmount,
+                'tanggal_pinjam' => $startDateTime->format('Y-m-d H:i:s'), // Save with time
+                'tanggal_kembali' => $endDateTime->format('Y-m-d H:i:s'), // Save with time
+                'lama_hari' => $lamaDays,
+                'total_harga' => $totalHarga,
+                'pembayaran' => $request->pembayaran,
+                'status' => 'belum dikembalikan'
+            ]);
+
+            // Create detail peminjaman
+            foreach ($cartItems as $item) {
+                DetailPeminjaman::create([
+                    'peminjaman_id' => $peminjaman->id,
+                    'barang_id' => $item['id'],
+                    'jumlah' => $item['quantity'],
+                    'harga' => $item['harga'],
+                    'subtotal' => $item['harga'] * $item['quantity'] * $lamaDays
+                ]);
+
+                // REMOVED: Direct stock reduction - now handled by StockAvailabilityService
+                // OLD: $barang = Barang::find($item['id']); $barang->decrement('stok', $item['quantity']);
+            }
+
+            DB::commit();
+            
+            // Clear cart
+            session()->forget('cart');
+            
+            return redirect()->route('peminjaman.success', UrlCrypt::encrypt($peminjaman->id));
+            
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->with('error', 'Terjadi kesalahan: ' . $e->getMessage());
+        }
+    }
+
+    public function success($encrypted_id)
+    {
+        $id = UrlCrypt::decrypt($encrypted_id);
+        
+        if (!$id) {
+            abort(404, 'Transaksi tidak ditemukan');
+        }
+        
+        $peminjaman = Peminjaman::with(['peminjam', 'detail.barang'])->findOrFail($id);
+        return view('peminjaman.success', compact('peminjaman'));
+    }
+
+    public function getEncryptedUrl($id)
+    {
+        try {
+            $barang = Barang::findOrFail($id);
+            
+            return response()->json([
+                'success' => true,
+                'url' => UrlCrypt::shortRoute($id), // Use short URL format
+                'legacy_url' => route('peminjaman.detail', UrlCrypt::encrypt($id)) // Keep legacy for compatibility
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Product not found'
+            ], 404);
+        }
+    }
+
+    public function batchEncryptUrls(Request $request)
+    {
+        try {
+            $ids = $request->input('ids', []);
+            
+            if (empty($ids) || !is_array($ids)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'IDs array required'
+                ], 400);
+            }
+
+            // Validate IDs exist in database (single query)
+            $validIds = Barang::whereIn('id', $ids)->pluck('id')->toArray();
+            
+            // Use batch processing for efficiency
+            $encryptedUrls = UrlCrypt::batchShortRoutes($validIds);
+
+            return response()->json([
+                'success' => true,
+                'urls' => $encryptedUrls
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error processing batch encryption'
+            ], 500);
+        }
+    }
+
+    public function myOrders(Request $request)
+    {
+        $search = $request->get('search');
+        $peminjaman = collect();
+        $search_query = null;
+        
+        // Jika ada parameter search, lakukan pencarian
+        if ($search) {
+            $search_query = $search;
+            
+            // Pencarian otomatis: nama peminjam OR kode transaksi
+            $peminjaman = Peminjaman::where(function($query) use ($search) {
+                // Pencarian berdasarkan nama peminjam
+                $query->whereHas('peminjam', function($q) use ($search) {
+                    $q->where('nama', 'like', '%' . $search . '%');
+                })
+                // ATAU pencarian berdasarkan kode transaksi
+                ->orWhere('kode_transaksi', 'like', '%' . $search . '%');
+            })
+            ->with(['peminjam', 'detail.barang.jenisBarang'])
+            ->orderBy('created_at', 'desc')
+            ->get();
+        }
+        
+        return view('peminjaman.orders', compact('peminjaman', 'search_query'));
+    }
+
+    // Wishlist methods
+    public function addToWishlist(Request $request)
+    {
+        $request->validate([
+            'barang_id' => 'required|exists:barang,id'
+        ]);
+
+        $barangId = $request->barang_id;
+        $wishlist = session()->get('wishlist', []);
+
+        if (!in_array($barangId, $wishlist)) {
+            $wishlist[] = $barangId;
+            session()->put('wishlist', $wishlist);
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Produk berhasil ditambahkan ke wishlist',
+                'wishlist_count' => count($wishlist)
+            ]);
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Produk sudah ada di wishlist'
+        ]);
+    }
+
+    public function removeFromWishlist($barangId)
+    {
+        // Validate that barang exists
+        $barang = Barang::find($barangId);
+        if (!$barang) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Produk tidak ditemukan'
+            ], 404);
+        }
+
+        $wishlist = session()->get('wishlist', []);
+        
+        if (($key = array_search($barangId, $wishlist)) !== false) {
+            unset($wishlist[$key]);
+            $wishlist = array_values($wishlist); // Reindex array
+            session()->put('wishlist', $wishlist);
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Produk berhasil dihapus dari wishlist',
+                'wishlist_count' => count($wishlist)
+            ]);
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Produk tidak ditemukan di wishlist'
+        ]);
+    }
+
+    public function wishlist()
+    {
+        $wishlistIds = session()->get('wishlist', []);
+        $wishlistItems = [];
+        
+        if (!empty($wishlistIds)) {
+            $wishlistItems = Barang::with('jenisBarang')
+                ->whereIn('id', $wishlistIds)
+                ->get();
+        }
+        
+        return view('peminjaman.wishlist', compact('wishlistItems'));
+    }
+
+    public function wishlistCount()
+    {
+        $wishlist = session()->get('wishlist', []);
+        
+        return response()->json([
+            'success' => true,
+            'wishlist_count' => count($wishlist)
+        ]);
+    }
+
+    public function clearWishlist()
+    {
+        session()->forget('wishlist');
+        
+        return response()->json([
+            'success' => true,
+            'message' => 'Wishlist berhasil dikosongkan',
+            'wishlist_count' => 0
+        ]);
+    }
+
+    public function getMoreCategories(Request $request)
+    {
+        try {
+            // Get categories that have products and are not in the first 4
+            // Use same ordering as in index method to ensure consistency
+            $allCategories = JenisBarang::withCount('barang')
+                ->having('barang_count', '>', 0)
+                ->get(); // Remove orderBy to match index method
+            
+            // Skip first 4 categories to get the "more" categories
+            $moreCategories = $allCategories->skip(4);
+            
+            $html = '';
+            foreach ($moreCategories as $jenis) {
+                $html .= '
+                <input type="radio" class="btn-check" name="categoryFilter" id="category-' . $jenis->id . '" autocomplete="off">
+                <label class="btn btn-outline-primary btn-sm" for="category-' . $jenis->id . '">' . htmlspecialchars(Str::limit($jenis->nama, 8)) . '</label>';
+            }
+            
+            return response()->json([
+                'success' => true,
+                'html' => $html,
+                'count' => $moreCategories->count(),
+                'debug' => [
+                    'total_categories' => $allCategories->count(),
+                    'displayed_categories' => $moreCategories->pluck('nama')->toArray()
+                ]
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('Get more categories error: ' . $e->getMessage());
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat memuat kategori'
+            ], 500);
+        }
+    }
+
+    public function filterByCategory(Request $request, $id = null)
+    {
+        try {
+            $query = Barang::with('jenisBarang');
+            
+            // Filter by category if ID provided
+            if ($id && $id !== 'all') {
+                $query->where('jenis_barang_id', $id);
+            }
+            
+            // Handle search functionality if exists
+            if ($request->has('search') && !empty($request->search)) {
+                $searchTerm = $request->search;
+                $query->where(function($q) use ($searchTerm) {
+                    $q->where('nama', 'LIKE', '%' . $searchTerm . '%')
+                      ->orWhere('deskripsi', 'LIKE', '%' . $searchTerm . '%')
+                      ->orWhereHas('jenisBarang', function($subQuery) use ($searchTerm) {
+                          $subQuery->where('nama', 'LIKE', '%' . $searchTerm . '%');
+                      });
+                });
+            }
+            
+            // Get ALL products in this category without any limit
+            $barang = $query->orderBy('created_at', 'desc')->get();
+            $totalCount = $barang->count();
+            
+            // Add availability data using StockAvailabilityService - same as index method
+            foreach ($barang as $item) {
+                $today = \Carbon\Carbon::now()->format('Y-m-d');
+                $availability = $this->stockService->checkAvailability($item->id, $today, $today, 1);
+                $item->available_stock = $availability['available_quantity'];
+                $item->is_available = $availability['available'];
+            }
+            
+            // Generate HTML for products with proper structure
+            $html = '<div class="row g-4" id="productGrid">';
+            
+            if ($barang->count() > 0) {
+                foreach ($barang as $item) {
+                    // Use consistent image checking method like in template
+                    $hasImage = $item->gambar && Storage::disk('public')->exists($item->gambar);
+                    $gambarUrl = $hasImage ? asset('storage/' . $item->gambar) : null;
+                    
+                    // Use available_stock instead of database stock for status - same as index method
+                    $statusBadge = '';
+                    if ($item->available_stock == 0) {
+                        $statusBadge = '<span class="badge bg-danger">Tidak Tersedia</span>';
+                    } elseif ($item->available_stock < 3) {
+                        $statusBadge = '<span class="badge bg-warning text-dark">Terbatas</span>';
+                    } else {
+                        $statusBadge = '<span class="badge bg-success">Tersedia</span>';
+                    }
+                    
+                    $sewaBtnDisabled = $item->available_stock > 0 ? '' : 'disabled';
+                    $sewaBtnClass = $item->available_stock > 0 ? 'btn-primary' : 'btn-secondary';
+                    $sewaBtnIcon = $item->available_stock > 0 ? 'fas fa-cart-plus' : 'fas fa-times';
+                    $sewaBtnText = $item->available_stock > 0 ? 'Sewa' : 'Habis';
+                    $sewaBtnOnClick = $item->available_stock > 0 ? "addToCart({$item->id})" : '';
+                    
+                    // Generate encrypted URL on server-side
+                    $encryptedId = \App\Helpers\UrlCrypt::encrypt($item->id);
+                    $detailUrl = route('peminjaman.detail', $encryptedId);
+                    
+                    $deskripsi = $item->deskripsi 
+                        ? '<p class="card-text text-muted small mb-3" style="height: 2.5em; overflow: hidden; line-height: 1.25;">' . Str::limit($item->deskripsi, 60) . '</p>'
+                        : '<div style="height: 2.5em; margin-bottom: 1rem;"></div>';
+                    
+                    $html .= '
+                    <div class="col-lg-3 col-md-6 product-item" data-category="category-' . $item->jenis_barang_id . '" data-encrypted-id="' . $encryptedId . '">
+                        <div class="card border-0 shadow-sm h-100 product-card-simple" onclick="goToDetailDirect(\'' . $detailUrl . '\')" style="cursor: pointer; transition: transform 0.2s ease, box-shadow 0.2s ease;">
+                            <div class="position-relative overflow-hidden" onclick="goToDetailDirect(\'' . $detailUrl . '\')" style="border-radius: 0.5rem 0.5rem 0 0;">
+                                ' . ($gambarUrl 
+                                    ? '<img src="' . $gambarUrl . '" class="card-img-top" alt="' . htmlspecialchars($item->nama) . '" loading="lazy" style="height: 200px; object-fit: cover; transition: transform 0.3s ease;">'
+                                    : '<div class="d-flex align-items-center justify-content-center bg-light" style="height: 200px;">
+                                        <div class="text-center text-muted">
+                                            <i class="fas fa-image fa-2x mb-2"></i>
+                                            <div class="small">Tidak ada gambar</div>
+                                        </div>
+                                    </div>'
+                                ) . '
+                                
+                                <!-- Status Badge -->
+                                <div class="position-absolute top-0 end-0 m-2">
+                                    ' . $statusBadge . '
+                                </div>
+                                
+                                <!-- Wishlist Button -->
+                                <div class="position-absolute top-0 start-0 m-2">
+                                    <button class="btn btn-light btn-sm rounded-circle" onclick="toggleWishlist(' . $item->id . ', event)" title="Tambah ke favorit" style="width: 32px; height: 32px; padding: 0;">
+                                        <i class="far fa-heart"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="card-body p-3">
+                                <!-- Product Name & Category -->
+                                <div class="mb-2">
+                                    <h6 class="card-title fw-bold mb-1 text-truncate">' . htmlspecialchars($item->nama) . '</h6>
+                                    <small class="text-muted">' . htmlspecialchars($item->jenisBarang->nama) . '</small>
+                                </div>
+                                
+                                <!-- Description -->
+                                ' . $deskripsi . '
+                                
+                                <!-- Price -->
+                                <div class="mb-3">
+                                    <div class="h6 text-primary fw-bold mb-0">Rp ' . number_format($item->harga_hari, 0, ',', '.') . '</div>
+                                    <small class="text-muted">per hari</small>
+                                </div>
+                                
+                                <!-- Stock Info - Simple & Clean -->
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between align-items-center py-2 px-3 bg-light rounded">
+                                        <span class="small text-muted">
+                                            <i class="fas fa-box me-1"></i>Stok Total
+                                        </span>
+                                        <span class="small fw-semibold">' . $item->stok . '</span>
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center py-2 px-3 mt-1 rounded ' . ($item->available_stock > 0 ? 'bg-success bg-opacity-10 text-success' : 'bg-danger bg-opacity-10 text-danger') . '">
+                                        <span class="small">
+                                            <i class="fas fa-calendar-check me-1"></i>Tersedia Hari Ini
+                                        </span>
+                                        <span class="small fw-bold">' . $item->available_stock . '</span>
+                                    </div>
+                                </div>
+                                
+                                <!-- Action Buttons -->
+                                <div class="d-grid gap-2">
+                                    <div class="btn-group">
+                                        <a href="' . route('peminjaman.show', $item->id) . '" class="btn btn-outline-primary btn-sm" onclick="event.stopPropagation();">
+                                            <i class="fas fa-eye me-1"></i>Detail
+                                        </a>
+                                        <button type="button" class="btn ' . $sewaBtnClass . ' btn-sm" ' . $sewaBtnDisabled . ' onclick="event.stopPropagation(); ' . $sewaBtnOnClick . '">
+                                            <i class="' . $sewaBtnIcon . ' me-1"></i>' . $sewaBtnText . '
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>';
+                }
+            } else {
+                // No products found
+                $html .= '
+                <div class="col-12">
+                    <div class="text-center py-5">
+                        <div class="mb-4">
+                            <i class="fas fa-box-open text-muted" style="font-size: 4rem;"></i>
+                        </div>
+                        <h4 class="text-muted mb-2">Tidak Ada Produk</h4>
+                        <p class="text-muted">Belum ada produk di kategori ini.</p>
+                    </div>
+                </div>';
+            }
+            
+            // Close the product grid row
+            $html .= '</div>'; // End product grid row
+            
+            // NO LOAD MORE BUTTON - All products are loaded at once
+            
+            // Get category info for response
+            $categoryInfo = null;
+            if ($id && $id !== 'all') {
+                $categoryInfo = JenisBarang::find($id);
+            }
+            
+            return response()->json([
+                'success' => true,
+                'html' => $html,
+                'count' => $totalCount,
+                'total_count' => $totalCount,
+                'has_more' => false, // Never has more since all products are loaded
+                'category_id' => $id,
+                'category_name' => $categoryInfo ? $categoryInfo->nama : 'Semua',
+                'message' => $id === 'all' ? 'Menampilkan semua produk (' . $totalCount . ' items)' : 'Menampilkan semua produk kategori: ' . ($categoryInfo ? $categoryInfo->nama : 'Unknown') . ' (' . $totalCount . ' items)'
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('Filter by category error: ' . $e->getMessage());
+            Log::error('Stack trace: ' . $e->getTraceAsString());
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat memfilter produk',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function loadMoreProducts(Request $request)
+    {
+        try {
+            $page = $request->get('page', 1);
+            $perPage = 20;
+            $search = $request->get('search', '');
+            $category = $request->get('category', '');
+            
+            $query = Barang::with('jenisBarang');
+            
+            // Handle search functionality
+            if (!empty($search)) {
+                $query->where(function($q) use ($search) {
+                    $q->where('nama', 'LIKE', '%' . $search . '%')
+                      ->orWhere('deskripsi', 'LIKE', '%' . $search . '%')
+                      ->orWhereHas('jenisBarang', function($subQuery) use ($search) {
+                          $subQuery->where('nama', 'LIKE', '%' . $search . '%');
+                      });
+                });
+            }
+            
+            // Handle category filter - ensure consistency with filterByCategory method
+            if (!empty($category) && $category !== 'all') {
+                $query->where('jenis_barang_id', $category);
+            }
+            
+            $barang = $query->orderBy('created_at', 'desc')->paginate($perPage, ['*'], 'page', $page);
+            
+            // Add availability information using StockAvailabilityService
+            foreach ($barang as $item) {
+                $today = \Carbon\Carbon::now();
+                $availability = $this->stockService->checkAvailability(
+                    $item->id, 
+                    $today->format('Y-m-d'), 
+                    $today->format('Y-m-d'), 
+                    1
+                );
+                $item->available_stock = $availability['available_quantity'];
+            }
+            
+            $html = '';
+            foreach ($barang as $item) {
+                $gambarUrl = $item->gambar && file_exists(public_path('storage/' . $item->gambar)) 
+                    ? asset('storage/' . $item->gambar) 
+                    : null;
+                
+                // Use available_stock instead of database stock for status
+                $statusBadge = '';
+                if ($item->available_stock == 0) {
+                    $statusBadge = '<span class="badge bg-danger">Tidak Tersedia</span>';
+                } elseif ($item->available_stock < 3) {
+                    $statusBadge = '<span class="badge bg-warning text-dark">Terbatas</span>';
+                } else {
+                    $statusBadge = '<span class="badge bg-success">Tersedia</span>';
+                }
+                
+                $sewaBtnDisabled = $item->available_stock > 0 ? '' : 'disabled';
+                $sewaBtnClass = $item->available_stock > 0 ? 'btn-primary' : 'btn-secondary';
+                $sewaBtnIcon = $item->available_stock > 0 ? 'fas fa-cart-plus' : 'fas fa-times';
+                $sewaBtnText = $item->available_stock > 0 ? 'Sewa' : 'Habis';
+                $sewaBtnOnClick = $item->available_stock > 0 ? "addToCart({$item->id})" : '';
+                
+                // Generate encrypted URL on server-side
+                $encryptedId = \App\Helpers\UrlCrypt::encrypt($item->id);
+                $detailUrl = route('peminjaman.detail', $encryptedId);
+                
+                $deskripsi = $item->deskripsi 
+                    ? '<p class="card-text text-muted small mb-3" style="height: 2.5em; overflow: hidden; line-height: 1.25;">' . Str::limit($item->deskripsi, 60) . '</p>'
+                    : '<div style="height: 2.5em; margin-bottom: 1rem;"></div>';
+                
+                $html .= '
+                <div class="col-lg-3 col-md-6 product-item" data-category="category-' . $item->jenis_barang_id . '" data-encrypted-id="' . $encryptedId . '">
+                    <div class="card border-0 shadow-sm h-100 product-card-simple" onclick="goToDetailDirect(\'' . $detailUrl . '\')" style="cursor: pointer; transition: transform 0.2s ease, box-shadow 0.2s ease;">
+                        <div class="position-relative overflow-hidden" onclick="goToDetailDirect(\'' . $detailUrl . '\')" style="border-radius: 0.5rem 0.5rem 0 0;">
+                            ' . ($gambarUrl 
+                                ? '<img src="' . $gambarUrl . '" class="card-img-top" alt="' . htmlspecialchars($item->nama) . '" loading="lazy" style="height: 200px; object-fit: cover; transition: transform 0.3s ease;">'
+                                : '<div class="d-flex align-items-center justify-content-center bg-light" style="height: 200px;">
+                                    <div class="text-center text-muted">
+                                        <i class="fas fa-image fa-2x mb-2"></i>
+                                        <div class="small">Tidak ada gambar</div>
+                                    </div>
+                                </div>'
+                            ) . '
+                            
+                            <!-- Status Badge -->
+                            <div class="position-absolute top-0 end-0 m-2">
+                                ' . $statusBadge . '
+                            </div>
+                            
+                            <!-- Wishlist Button -->
+                            <div class="position-absolute top-0 start-0 m-2">
+                                <button class="btn btn-light btn-sm rounded-circle" onclick="toggleWishlist(' . $item->id . ', event)" title="Tambah ke favorit" style="width: 32px; height: 32px; padding: 0;">
+                                    <i class="far fa-heart"></i>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="card-body p-3">
+                            <!-- Product Name & Category -->
+                            <div class="mb-2">
+                                <h6 class="card-title fw-bold mb-1 text-truncate">' . htmlspecialchars($item->nama) . '</h6>
+                                <small class="text-muted">' . htmlspecialchars($item->jenisBarang->nama) . '</small>
+                            </div>
+                            
+                            <!-- Description -->
+                            ' . $deskripsi . '
+                            
+                            <!-- Price -->
+                            <div class="mb-3">
+                                <div class="h6 text-primary fw-bold mb-0">Rp ' . number_format($item->harga_hari, 0, ',', '.') . '</div>
+                                <small class="text-muted">per hari</small>
+                            </div>
+                            
+                            <!-- Stock Info - Simple & Clean -->
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between align-items-center py-2 px-3 bg-light rounded">
+                                    <span class="small text-muted">
+                                        <i class="fas fa-box me-1"></i>Stok Total
+                                    </span>
+                                    <span class="small fw-semibold">' . $item->stok . '</span>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center py-2 px-3 mt-1 rounded ' . ($item->available_stock > 0 ? 'bg-success bg-opacity-10 text-success' : 'bg-danger bg-opacity-10 text-danger') . '">
+                                    <span class="small">
+                                        <i class="fas fa-calendar-check me-1"></i>Tersedia Hari Ini
+                                    </span>
+                                    <span class="small fw-bold">' . $item->available_stock . '</span>
+                                </div>
+                            </div>
+                            
+                            <!-- Action Buttons -->
+                            <div class="d-grid gap-2">
+                                <div class="btn-group">
+                                    <a href="' . route('peminjaman.show', $item->id) . '" class="btn btn-outline-primary btn-sm" onclick="event.stopPropagation();">
+                                        <i class="fas fa-eye me-1"></i>Detail
+                                    </a>
+                                    <button type="button" class="btn ' . $sewaBtnClass . ' btn-sm" ' . $sewaBtnDisabled . ' onclick="event.stopPropagation(); ' . $sewaBtnOnClick . '">
+                                        <i class="' . $sewaBtnIcon . ' me-1"></i>' . $sewaBtnText . '
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>';
+            }
+            
+            return response()->json([
+                'success' => true,
+                'html' => $html,
+                'hasMore' => $barang->hasMorePages(),
+                'currentPage' => $barang->currentPage(),
+                'totalItems' => $barang->total(),
+                'loadedItems' => $barang->count(),
+                'nextPage' => $barang->currentPage() + 1,
+                'debug' => [
+                    'category' => $category,
+                    'search' => $search,
+                    'page' => $page
+                ]
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('Load more products error: ' . $e->getMessage());
+            Log::error('Stack trace: ' . $e->getTraceAsString());
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat memuat produk',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Check availability for specific dates
+     */
+    public function checkAvailability(Request $request)
+    {
+        try {
+            // Log incoming request for debugging
+            Log::info('Availability check request:', $request->all());
+
+            $request->validate([
+                'barang_id' => 'required|integer|exists:barang,id',
+                'tanggal_pinjam' => 'required|date|after_or_equal:today',
+                'tanggal_kembali' => 'required|date|after_or_equal:tanggal_pinjam',
+                'quantity' => 'required|integer|min:1'
+            ]);
+
+            $stockService = new StockAvailabilityService();
+            
+            $availability = $stockService->checkAvailability(
+                $request->barang_id,
+                $request->tanggal_pinjam,
+                $request->tanggal_kembali,
+                $request->quantity
+            );
+
+            Log::info('Availability check result:', $availability);
+
+            return response()->json([
+                'success' => true,
+                'availability' => $availability
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Availability check error: ' . $e->getMessage(), [
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+                'request_data' => $request->all()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat memeriksa ketersediaan: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get availability calendar for a product
+     */
+    public function getAvailabilityCalendar(Request $request)
+    {
+        try {
+            $request->validate([
+                'barang_id' => 'required|integer|exists:barang,id',
+                'start_date' => 'required|date',
+                'end_date' => 'required|date|after:start_date'
+            ]);
+
+            $stockService = new StockAvailabilityService();
+            
+            $calendar = $stockService->getAvailabilityCalendar(
+                $request->barang_id,
+                $request->start_date,
+                $request->end_date
+            );
+
+            return response()->json([
+                'success' => true,
+                'calendar' => $calendar
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Availability calendar error: ' . $e->getMessage());
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat memuat kalender ketersediaan'
+            ], 500);
+        }
+    }
+
+    /**
+     * Get unavailable dates for cart items
+     */
+    public function getCartUnavailableDates(Request $request)
+    {
+        try {
+            $cartItems = session('cart', []);
+            
+            if (empty($cartItems)) {
+                return response()->json([
+                    'success' => true,
+                    'unavailable_dates' => [],
+                    'messages' => []
+                ]);
+            }
+
+            $stockService = new StockAvailabilityService();
+            $unavailableDates = [];
+            $dateMessages = [];
+            
+            // Check dates for the next 90 days
+            $startDate = Carbon::today();
+            $endDate = Carbon::today()->addDays(90);
+            
+            for ($date = $startDate->copy(); $date->lte($endDate); $date->addDay()) {
+                $dateStr = $date->format('Y-m-d');
+                $unavailableItems = [];
+                
+                foreach ($cartItems as $item) {
+                    $availability = $stockService->checkAvailability(
+                        $item['id'],
+                        $dateStr,
+                        $dateStr,
+                        $item['quantity']
+                    );
+                    
+                    if (!$availability['available']) {
+                        $unavailableItems[] = [
+                            'nama' => $item['nama'],
+                            'required' => $item['quantity'],
+                            'available' => $availability['available_quantity'],
+                            'message' => $availability['message']
+                        ];
+                    }
+                }
+                
+                if (!empty($unavailableItems)) {
+                    $unavailableDates[] = $dateStr;
+                    $dateMessages[$dateStr] = $unavailableItems;
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'unavailable_dates' => $unavailableDates,
+                'messages' => $dateMessages
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Cart unavailable dates error: ' . $e->getMessage());
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat memuat tanggal yang tidak tersedia'
+            ], 500);
+        }
+    }
+}

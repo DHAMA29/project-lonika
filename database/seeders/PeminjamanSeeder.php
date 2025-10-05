@@ -16,7 +16,7 @@ class PeminjamanSeeder extends Seeder
             'tanggal_kembali' => now()->addDays(3),
             'lama_hari' => 5,
             'pembayaran' => 'transfer',
-            'status' => 'ongoing',
+            'status' => 'belum dikembalikan',
             'total_harga' => 400000,
         ]);
 

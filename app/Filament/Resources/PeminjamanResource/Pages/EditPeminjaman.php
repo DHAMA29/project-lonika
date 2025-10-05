@@ -10,11 +10,18 @@ use Filament\Resources\Pages\EditRecord;
 class EditPeminjaman extends EditRecord
 {
     protected static string $resource = PeminjamanResource::class;
+    
+    protected static ?string $title = 'Edit Transaksi';
 
     protected function getHeaderActions(): array
     {
         return [
-            Actions\DeleteAction::make(),
+            Actions\DeleteAction::make()
+                ->label('Hapus')
+                ->modalHeading('Hapus Transaksi')
+                ->modalDescription('Apakah Anda yakin ingin menghapus transaksi ini?')
+                ->modalSubmitActionLabel('Ya, Hapus')
+                ->modalCancelActionLabel('Batal'),
         ];
     }
     
@@ -66,5 +73,10 @@ class EditPeminjaman extends EditRecord
         }
         
         return $data;
+    }
+
+    protected function getRedirectUrl(): string
+    {
+        return $this->getResource()::getUrl('index');
     }
 }

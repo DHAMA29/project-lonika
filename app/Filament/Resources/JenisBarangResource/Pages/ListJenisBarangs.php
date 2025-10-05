@@ -9,11 +9,14 @@ use Filament\Resources\Pages\ListRecords;
 class ListJenisBarangs extends ListRecords
 {
     protected static string $resource = JenisBarangResource::class;
+    
+    protected static ?string $title = 'Daftar Jenis Barang';
 
     protected function getHeaderActions(): array
     {
         return [
-            Actions\CreateAction::make(),
+            Actions\CreateAction::make()
+                ->label('Tambah Jenis Barang'),
         ];
     }
 }

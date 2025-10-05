@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Debug Filtering Issue</title>
+        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+        <style>
+            .product-item {
+                border: 1px solid #ccc;
+                padding: 10px;
+                margin: 5px;
+                display: block;
+            }
+            .product-item.filtering-hide {
+                display: none !important;
+            }
+            button {
+                margin: 5px;
+                padding: 8px 15px;
+            }
+            .debug {
+                background: #f0f0f0;
+                padding: 10px;
+                margin: 10px 0;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Debug Category Filtering</h1>
+
+        <div class="debug">
+            <h3>Filter Buttons:</h3>
+            <input type="radio" name="categoryFilter" id="all" checked />
+            <label for="all">Semua</label>
+
+            <input type="radio" name="categoryFilter" id="category-1" />
+            <label for="category-1">Kamera</label>
+
+            <input type="radio" name="categoryFilter" id="category-2" />
+            <label for="category-2">Audio</label>
+
+            <input type="radio" name="categoryFilter" id="category-3" />
+            <label for="category-3">Lighting</label>
+        </div>
+
+        <div class="debug">
+            <h3>Test Products:</h3>
+            <div class="product-item" data-category="category-1">
+                <h5>Kamera Canon</h5>
+                <p>data-category="category-1"</p>
+            </div>
+            <div class="product-item" data-category="category-2">
+                <h5>Mikrofon Audio</h5>
+                <p>data-category="category-2"</p>
+            </div>
+            <div class="product-item" data-category="category-3">
+                <h5>LED Light</h5>
+                <p>data-category="category-3"</p>
+            </div>
+            <div class="product-item" data-category="category-1">
+                <h5>Kamera Sony</h5>
+                <p>data-category="category-1"</p>
+            </div>
+        </div>
+
+        <div class="debug" id="debugLog">
+            <h3>Debug Log:</h3>
+        </div>
+
+        <script>
+            function log(message) {
+                const debugLog = document.getElementById("debugLog");
+                debugLog.innerHTML +=
+                    "<p>" +
+                    new Date().toLocaleTimeString() +
+                    ": " +
+                    message +
+                    "</p>";
+                console.log(message);
+            }
+
+            function testFilter(selectedCategory) {
+                log("=== FILTER TEST START ===");
+                log("Selected category: " + selectedCategory);
+
+                const $products = $(".product-item");
+                log("Found " + $products.length + " products");
+
+                // Show all products first
+                $products.removeClass("filtering-hide");
+
+                if (selectedCategory !== "all") {
+                    $products.each(function () {
+                        const $product = $(this);
+                        const productCategory = $product.data("category");
+                        const productName = $product.find("h5").text();
+
+                        log(
+                            "Product: " +
+                                productName +
+                                " | Category: " +
+                                productCategory
+                        );
+
+                        if (productCategory === selectedCategory) {
+                            log("→ SHOWING: " + productName);
+                            $product.removeClass("filtering-hide");
+                        } else {
+                            log("→ HIDING: " + productName);
+                            $product.addClass("filtering-hide");
+                        }
+                    });
+                } else {
+                    log("Showing all products");
+                }
+
+                const visibleCount = $products.filter(
+                    ":not(.filtering-hide)"
+                ).length;
+                log("Visible products after filter: " + visibleCount);
+                log("=== FILTER TEST END ===");
+            }
+
+            // Setup event listeners
+            $(document).ready(function () {
+                log("Document ready, setting up event listeners...");
+
+                $('input[name="categoryFilter"]').on("change", function () {
+                    const selectedCategory = $(this).attr("id");
+                    log("Radio button changed to: " + selectedCategory);
+                    testFilter(selectedCategory);
+                });
+
+                log("Event listeners setup complete");
+            });
+        </script>
+    </body>
+</html>

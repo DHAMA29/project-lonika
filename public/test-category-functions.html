@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Test Category Functions - Lonika</title>
+        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+        <link
+            href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"
+            rel="stylesheet"
+        />
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                margin: 20px;
+            }
+            .test-section {
+                border: 1px solid #ddd;
+                padding: 20px;
+                margin: 10px 0;
+                border-radius: 8px;
+            }
+            .test-result {
+                background: #f8f9fa;
+                padding: 10px;
+                margin: 10px 0;
+                border-radius: 4px;
+            }
+            .success {
+                color: green;
+            }
+            .error {
+                color: red;
+            }
+            .info {
+                color: blue;
+            }
+            .more-categories {
+                display: none;
+            }
+            .d-none {
+                display: none !important;
+            }
+            .category-item {
+                display: inline-block;
+                margin: 5px;
+                padding: 8px 16px;
+                background: #e9ecef;
+                border-radius: 20px;
+                cursor: pointer;
+            }
+            .category-item:hover {
+                background: #dee2e6;
+            }
+            .btn-load-more {
+                background: #007bff;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 20px;
+                cursor: pointer;
+                margin: 5px;
+            }
+            .btn-load-more:hover {
+                background: #0056b3;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Test Category Functions - Lonika</h1>
+            <p class="text-muted">
+                Testing JavaScript functions and category expansion feature
+            </p>
+
+            <div class="test-section">
+                <h3>1. Function Definition Test</h3>
+                <div id="function-test-result" class="test-result">
+                    Testing function definitions...
+                </div>
+                <button
+                    onclick="testFunctionDefinitions()"
+                    class="btn btn-primary"
+                >
+                    Test Functions
+                </button>
+            </div>
+
+            <div class="test-section">
+                <h3>2. Category Expansion Test</h3>
+                <div class="category-filter">
+                    <div class="category-item">Elektronik</div>
+                    <div class="category-item">Furniture</div>
+                    <div class="category-item">Kendaraan</div>
+                    <div class="category-item">Alat Tulis</div>
+                    <div class="category-item">Komputer</div>
+
+                    <div class="more-categories">
+                        <div class="category-item">Audio Visual</div>
+                        <div class="category-item">Peralatan Medis</div>
+                        <div class="category-item">Konstruksi</div>
+                        <div class="category-item">Laboratorium</div>
+                    </div>
+
+                    <button
+                        class="btn-load-more"
+                        onclick="testCategoryExpansion()"
+                    >
+                        lainnya
+                    </button>
+                </div>
+                <div id="expansion-test-result" class="test-result">
+                    Ready to test category expansion...
+                </div>
+            </div>
+
+            <div class="test-section">
+                <h3>3. AJAX Test (Simulated)</h3>
+                <div id="ajax-test-result" class="test-result">
+                    Ready to test AJAX functionality...
+                </div>
+                <button
+                    onclick="testAjaxFunctionality()"
+                    class="btn btn-secondary"
+                >
+                    Test AJAX Functions
+                </button>
+            </div>
+
+            <div class="test-section">
+                <h3>4. Console Output</h3>
+                <div
+                    id="console-output"
+                    class="test-result"
+                    style="max-height: 200px; overflow-y: auto"
+                >
+                    <div class="info">Console messages will appear here...</div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            // Redirect console.log to show in UI
+            const originalConsoleLog = console.log;
+            console.log = function (...args) {
+                originalConsoleLog.apply(console, arguments);
+                const consoleOutput = document.getElementById("console-output");
+                const message = args.join(" ");
+                consoleOutput.innerHTML +=
+                    '<div class="info">LOG: ' + message + "</div>";
+                consoleOutput.scrollTop = consoleOutput.scrollHeight;
+            };
+
+            // Define the functions that need to be tested (similar to actual implementation)
+            function setupAjaxCategoryFilters() {
+                console.log("Setting up AJAX category filters...");
+
+                // Simulate setting up event listeners
+                console.log("AJAX category filters setup complete.");
+                return true;
+            }
+
+            function filterProductsByCategory(categoryId) {
+                console.log("Filtering products by category:", categoryId);
+                // Simulate AJAX call
+                setTimeout(() => {
+                    console.log(
+                        "Products filtered successfully for category:",
+                        categoryId
+                    );
+                }, 500);
+                return true;
+            }
+
+            function testFunctionDefinitions() {
+                const resultDiv = document.getElementById(
+                    "function-test-result"
+                );
+                let results = [];
+
+                try {
+                    // Test setupAjaxCategoryFilters
+                    if (typeof setupAjaxCategoryFilters === "function") {
+                        setupAjaxCategoryFilters();
+                        results.push(
+                            '<div class="success">✓ setupAjaxCategoryFilters function exists and callable</div>'
+                        );
+                    } else {
+                        results.push(
+                            '<div class="error">✗ setupAjaxCategoryFilters function not found</div>'
+                        );
+                    }
+
+                    // Test filterProductsByCategory
+                    if (typeof filterProductsByCategory === "function") {
+                        filterProductsByCategory("test");
+                        results.push(
+                            '<div class="success">✓ filterProductsByCategory function exists and callable</div>'
+                        );
+                    } else {
+                        results.push(
+                            '<div class="error">✗ filterProductsByCategory function not found</div>'
+                        );
+                    }
+
+                    // Test jQuery
+                    if (typeof $ !== "undefined") {
+                        results.push(
+                            '<div class="success">✓ jQuery is loaded</div>'
+                        );
+                    } else {
+                        results.push(
+                            '<div class="error">✗ jQuery not loaded</div>'
+                        );
+                    }
+                } catch (error) {
+                    results.push(
+                        '<div class="error">✗ Error during function test: ' +
+                            error.message +
+                            "</div>"
+                    );
+                    console.log("Function test error:", error);
+                }
+
+                resultDiv.innerHTML = results.join("");
+            }
+
+            function testCategoryExpansion() {
+                const resultDiv = document.getElementById(
+                    "expansion-test-result"
+                );
+                let results = [];
+
+                try {
+                    console.log("Testing category expansion...");
+
+                    // Test that setupAjaxCategoryFilters can be called
+                    setupAjaxCategoryFilters();
+                    results.push(
+                        '<div class="success">✓ setupAjaxCategoryFilters called successfully</div>'
+                    );
+
+                    // Show more categories
+                    $(".more-categories").slideDown();
+                    $(".btn-load-more").addClass("d-none");
+                    results.push(
+                        '<div class="success">✓ More categories shown</div>'
+                    );
+                    results.push(
+                        '<div class="info">Category expansion completed successfully</div>'
+                    );
+
+                    console.log("Category expansion test completed");
+                } catch (error) {
+                    results.push(
+                        '<div class="error">✗ Category expansion error: ' +
+                            error.message +
+                            "</div>"
+                    );
+                    console.log("Category expansion error:", error);
+                }
+
+                resultDiv.innerHTML = results.join("");
+            }
+
+            function testAjaxFunctionality() {
+                const resultDiv = document.getElementById("ajax-test-result");
+                let results = [];
+
+                try {
+                    console.log("Testing AJAX functionality...");
+
+                    // Test filter function
+                    filterProductsByCategory("1");
+                    results.push(
+                        '<div class="success">✓ filterProductsByCategory called with ID "1"</div>'
+                    );
+
+                    filterProductsByCategory("all");
+                    results.push(
+                        '<div class="success">✓ filterProductsByCategory called with "all"</div>'
+                    );
+
+                    results.push(
+                        '<div class="info">Check console for detailed AJAX simulation results</div>'
+                    );
+                } catch (error) {
+                    results.push(
+                        '<div class="error">✗ AJAX test error: ' +
+                            error.message +
+                            "</div>"
+                    );
+                    console.log("AJAX test error:", error);
+                }
+
+                resultDiv.innerHTML = results.join("");
+            }
+
+            // Initialize when document is ready
+            $(document).ready(function () {
+                console.log("Document ready - Test page initialized");
+
+                // Auto-run function definition test
+                setTimeout(testFunctionDefinitions, 100);
+            });
+        </script>
+    </body>
+</html>

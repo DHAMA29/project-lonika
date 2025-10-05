@@ -16,6 +16,8 @@ class JenisBarangResource extends Resource
     protected static ?string $navigationLabel = 'Jenis Barang';
     protected static ?string $pluralModelLabel = 'Jenis Barang';
     protected static ?string $modelLabel = 'Jenis Barang';
+    protected static ?string $navigationGroup = 'Manajemen Inventory';
+    protected static ?int $navigationSort = 2;
 
     public static function form(Forms\Form $form): Forms\Form
     {

@@ -14,14 +14,29 @@ class StatsOverview extends BaseWidget
 {
     protected static ?string $pollingInterval = '30s';
     
+    protected static ?int $sort = 1;
+    
     protected function getStats(): array
     {
-        // Data Stock
+        $now = Carbon::now();
+        
+        // Data Stock dengan pemisahan hari ini vs booking hari lain
         $totalStok = Barang::sum('stok');
-        $stokDipinjam = DetailPeminjaman::whereHas('peminjaman', function ($query) {
-            $query->where('status', 'belum dikembalikan');
+        
+        // Barang yang dipinjam hari ini (tanggal pinjam = hari ini)
+        $stokDipinjamHariIni = DetailPeminjaman::whereHas('peminjaman', function ($query) use ($now) {
+            $query->where('status', 'belum dikembalikan')
+                  ->whereDate('tanggal_pinjam', $now->toDateString());
         })->sum('jumlah');
-        $stokTersedia = $totalStok - $stokDipinjam;
+        
+        // Barang yang dibooking untuk hari lain (tanggal pinjam != hari ini tapi masih aktif)
+        $stokBookingHariLain = DetailPeminjaman::whereHas('peminjaman', function ($query) use ($now) {
+            $query->where('status', 'belum dikembalikan')
+                  ->whereDate('tanggal_pinjam', '!=', $now->toDateString());
+        })->sum('jumlah');
+        
+        $totalStokTerpakai = $stokDipinjamHariIni + $stokBookingHariLain;
+        $stokTersedia = $totalStok - $totalStokTerpakai;
         $persentaseStokTersedia = $totalStok > 0 ? round(($stokTersedia / $totalStok) * 100, 1) : 0;
         
         // Data Transaksi
@@ -31,14 +46,16 @@ class StatsOverview extends BaseWidget
         
         // Pendapatan Analysis
         $now = Carbon::now();
+        $bulanLalu = Carbon::now()->subMonth();
+        
         $pendapatanHariIni = Peminjaman::where('status', 'selesai')
             ->whereDate('updated_at', $now->toDateString())
             ->sum('total_harga');
             
         $pendapatanMingguIni = Peminjaman::where('status', 'selesai')
             ->whereBetween('updated_at', [
-                $now->startOfWeek()->toDateString(),
-                $now->endOfWeek()->toDateString()
+                $now->copy()->startOfWeek()->toDateString(),
+                $now->copy()->endOfWeek()->toDateString()
             ])
             ->sum('total_harga');
             
@@ -48,14 +65,14 @@ class StatsOverview extends BaseWidget
             ->sum('total_harga');
             
         $pendapatanBulanLalu = Peminjaman::where('status', 'selesai')
-            ->whereYear('updated_at', $now->subMonth()->year)
-            ->whereMonth('updated_at', $now->subMonth()->month)
+            ->whereYear('updated_at', $bulanLalu->year)
+            ->whereMonth('updated_at', $bulanLalu->month)
             ->sum('total_harga');
             
         // Growth calculation
         $pertumbuhanBulanan = $pendapatanBulanLalu > 0 
             ? round((($pendapatanBulanIni - $pendapatanBulanLalu) / $pendapatanBulanLalu) * 100, 1)
-            : 0;
+            : ($pendapatanBulanIni > 0 ? 100 : 0);
             
         // Transaksi bulan ini
         $transaksiBulanIni = Peminjaman::whereYear('created_at', $now->year)
@@ -63,18 +80,18 @@ class StatsOverview extends BaseWidget
             ->count();
 
         return [
-            Stat::make('Total Stock', number_format($totalStok))
-                ->description("{$stokDipinjam} dipinjam • {$persentaseStokTersedia}% tersedia")
+            Stat::make('Total Stok', number_format($totalStok))
+                ->description("{$stokDipinjamHariIni} dipinjam hari ini • {$stokBookingHariLain} dibooking hari lain")
                 ->descriptionIcon('heroicon-m-cube')
                 ->color($persentaseStokTersedia < 30 ? 'danger' : ($persentaseStokTersedia < 60 ? 'warning' : 'success'))
                 ->chart($this->getStockChart()),
                 
             Stat::make('Pendapatan Bulan Ini', 'Rp ' . number_format($pendapatanBulanIni, 0, ',', '.'))
-                ->description($pertumbuhanBulanan >= 0 
+                ->description($pertumbuhanBulanan > 0 
                     ? "+{$pertumbuhanBulanan}% dari bulan lalu" 
-                    : "{$pertumbuhanBulanan}% dari bulan lalu")
-                ->descriptionIcon($pertumbuhanBulanan >= 0 ? 'heroicon-m-arrow-trending-up' : 'heroicon-m-arrow-trending-down')
-                ->color($pertumbuhanBulanan >= 0 ? 'success' : 'danger')
+                    : ($pertumbuhanBulanan < 0 ? "{$pertumbuhanBulanan}% dari bulan lalu" : "Sama dengan bulan lalu"))
+                ->descriptionIcon($pertumbuhanBulanan > 0 ? 'heroicon-m-arrow-trending-up' : ($pertumbuhanBulanan < 0 ? 'heroicon-m-arrow-trending-down' : 'heroicon-m-minus'))
+                ->color($pertumbuhanBulanan > 0 ? 'success' : ($pertumbuhanBulanan < 0 ? 'danger' : 'warning'))
                 ->chart($this->getRevenueChart()),
                 
             Stat::make('Pendapatan Minggu Ini', 'Rp ' . number_format($pendapatanMingguIni, 0, ',', '.'))
@@ -82,17 +99,17 @@ class StatsOverview extends BaseWidget
                 ->descriptionIcon('heroicon-m-calendar-days')
                 ->color('info'),
                 
-            Stat::make('Transaksi Selesai', $transaksiSelesai)
+            Stat::make('Transaksi Selesai', number_format($transaksiSelesai))
                 ->description("{$transaksiBulanIni} total transaksi bulan ini")
                 ->descriptionIcon('heroicon-m-check-circle')
                 ->color('success'),
                 
-            Stat::make('Transaksi Belum Selesai', $transaksiAktif)
-                ->description("Perlu follow-up segera")
-                ->descriptionIcon('heroicon-m-exclamation-triangle')
+            Stat::make('Transaksi Belum Selesai', number_format($transaksiAktif))
+                ->description($transaksiAktif > 0 ? "Perlu follow-up segera" : "Semua transaksi selesai")
+                ->descriptionIcon($transaksiAktif > 0 ? 'heroicon-m-exclamation-triangle' : 'heroicon-m-check-badge')
                 ->color($transaksiAktif > 10 ? 'danger' : ($transaksiAktif > 5 ? 'warning' : ($transaksiAktif > 0 ? 'info' : 'success'))),
                 
-            Stat::make('Total Peminjam', $totalPeminjam)
+            Stat::make('Total Peminjam', number_format($totalPeminjam))
                 ->description("Member terdaftar")
                 ->descriptionIcon('heroicon-m-user-group')
                 ->color('primary'),
@@ -101,16 +118,16 @@ class StatsOverview extends BaseWidget
     
     private function getStockChart(): array
     {
-        // Stock utilization dalam 7 hari terakhir
+        // Stock utilization dalam 7 hari terakhir (total yang terpakai)
         $data = [];
         for ($i = 6; $i >= 0; $i--) {
             $date = Carbon::now()->subDays($i);
-            $borrowed = DetailPeminjaman::whereHas('peminjaman', function ($query) use ($date) {
+            $totalBorrowed = DetailPeminjaman::whereHas('peminjaman', function ($query) use ($date) {
                 $query->where('status', 'belum dikembalikan')
                       ->whereDate('created_at', '<=', $date);
             })->sum('jumlah');
             
-            $data[] = round(($borrowed / max($this->getTotalStock(), 1)) * 100, 1);
+            $data[] = round(($totalBorrowed / max($this->getTotalStock(), 1)) * 100, 1);
         }
         return $data;
     }

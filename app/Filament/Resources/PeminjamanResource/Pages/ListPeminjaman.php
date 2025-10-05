@@ -1,0 +1,22 @@
+<?php
+
+namespace App\Filament\Resources\PeminjamanResource\Pages;
+
+use App\Filament\Resources\PeminjamanResource;
+use Filament\Actions;
+use Filament\Resources\Pages\ListRecords;
+
+class ListPeminjaman extends ListRecords
+{
+    protected static string $resource = PeminjamanResource::class;
+    
+    protected static ?string $title = 'Daftar Transaksi';
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            Actions\CreateAction::make()
+                ->label('Buat Transaksi Baru'),
+        ];
+    }
+}

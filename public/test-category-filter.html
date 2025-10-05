@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Category Filter Test</title>
+        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+        <style>
+            .category-card-simple {
+                padding: 10px;
+                margin: 5px;
+                border: 2px solid #ccc;
+                cursor: pointer;
+                display: inline-block;
+            }
+            .category-card-simple.active {
+                border-color: blue;
+                background: lightblue;
+            }
+            .product-item {
+                padding: 10px;
+                margin: 5px;
+                border: 1px solid #ddd;
+            }
+            .filtering-hide {
+                display: none !important;
+            }
+            .filtering-show {
+                display: block !important;
+            }
+        </style>
+    </head>
+    <body>
+        <h2>Test Category Filtering</h2>
+
+        <div>
+            <h3>Categories:</h3>
+            <div class="category-card-simple active" data-category="all">
+                Semua (5)
+            </div>
+            <div class="category-card-simple" data-category="category-1">
+                Kamera (2)
+            </div>
+            <div class="category-card-simple" data-category="category-2">
+                Audio (3)
+            </div>
+        </div>
+
+        <div>
+            <h3>Products:</h3>
+            <div class="product-item" data-category="category-1">
+                Product 1 - Kamera
+            </div>
+            <div class="product-item" data-category="category-1">
+                Product 2 - Kamera
+            </div>
+            <div class="product-item" data-category="category-2">
+                Product 3 - Audio
+            </div>
+            <div class="product-item" data-category="category-2">
+                Product 4 - Audio
+            </div>
+            <div class="product-item" data-category="category-2">
+                Product 5 - Audio
+            </div>
+        </div>
+
+        <script>
+            $(document).ready(function () {
+                console.log("Document ready");
+
+                function smoothProductFilter(selectedCategory) {
+                    console.log(
+                        "smoothProductFilter called with:",
+                        selectedCategory
+                    );
+                    const $products = $(".product-item");
+                    console.log("Found products:", $products.length);
+
+                    $products
+                        .addClass("filtering-hide")
+                        .removeClass("filtering-show");
+
+                    setTimeout(() => {
+                        if (selectedCategory === "all") {
+                            console.log("Showing all products");
+                            $products
+                                .removeClass("filtering-hide")
+                                .addClass("filtering-show");
+                        } else {
+                            console.log(
+                                "Filtering by category:",
+                                selectedCategory
+                            );
+                            $products.each(function () {
+                                const $product = $(this);
+                                const productCategory =
+                                    $product.data("category");
+                                console.log(
+                                    "Product category:",
+                                    productCategory,
+                                    "vs selected:",
+                                    selectedCategory
+                                );
+
+                                if (productCategory === selectedCategory) {
+                                    $product
+                                        .removeClass("filtering-hide")
+                                        .addClass("filtering-show");
+                                } else {
+                                    $product
+                                        .addClass("filtering-hide")
+                                        .removeClass("filtering-show");
+                                }
+                            });
+                        }
+                    }, 100);
+                }
+
+                $(".category-card-simple[data-category]").click(function () {
+                    const categoryId = $(this).data("category");
+                    console.log("Category clicked:", categoryId);
+
+                    $(".category-card-simple").removeClass("active");
+                    $(this).addClass("active");
+
+                    smoothProductFilter(categoryId);
+                });
+            });
+        </script>
+    </body>
+</html>

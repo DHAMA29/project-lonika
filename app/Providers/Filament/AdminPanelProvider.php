@@ -26,12 +26,10 @@ class AdminPanelProvider extends PanelProvider
             ->default()
             ->id('admin')
             ->path('admin')
-             ->sidebarCollapsibleOnDesktop() 
-            ->login()
-                    ->brandName('Lonika Media') // teks nama panel
-        ->brandLogo(asset('images/lonika2.png')) // logo di sidebar & login
-        ->brandLogoHeight('50px')
-
+            ->sidebarCollapsibleOnDesktop() 
+            ->brandName('Admin Utama Lonika') // teks nama panel
+            ->brandLogo(asset('images/lonika-logo.png')) // logo di sidebar & login
+            ->brandLogoHeight('50px')
             ->colors([
                 'primary' => Color::Sky,
             ])
@@ -40,10 +38,16 @@ class AdminPanelProvider extends PanelProvider
             ->pages([
                 Pages\Dashboard::class,
             ])
+            ->navigationGroups([
+                'Manajemen Inventory', 
+                'Manajemen Transaksi',
+                'Manajemen Promosi',
+                'Manajemen Admin',
+            ])
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
             ->widgets([
                 Widgets\AccountWidget::class,
-                Widgets\FilamentInfoWidget::class,
+                // Removed FilamentInfoWidget to hide documentation link
             ])
             ->middleware([
                 EncryptCookies::class,
@@ -55,9 +59,12 @@ class AdminPanelProvider extends PanelProvider
                 SubstituteBindings::class,
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
+                \App\Http\Middleware\AdminMiddleware::class,
             ])
             ->authMiddleware([
                 Authenticate::class,
-            ]);
+            ])
+            ->authGuard('web')
+            ->authPasswordBroker('users');
     }
 }

@@ -10,10 +10,11 @@ class Barang extends Model
     use HasFactory;
 
     protected $table = 'barang';
-    protected $fillable = ['jenis_id','nama','stok','harga_hari','foto'];
+    protected $fillable = ['jenis_barang_id','nama','deskripsi','stok','harga_hari','gambar'];
 
-    public function jenis() {
-        return $this->belongsTo(JenisBarang::class, 'jenis_id');
+    public function jenisBarang()
+    {
+        return $this->belongsTo(JenisBarang::class, 'jenis_barang_id');
     }
 
     public function detailPeminjaman() {
